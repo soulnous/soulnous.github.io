@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenMyCar-IL RADIO</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #333; /* Changed background color */
+            color: #fff;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #222; /* Changed background color */
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+        }
+
+        #playlist-title {
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+
+        #playlist {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+        }
+
+        .card {
+            position: relative; /* Added position relative */
+            width: calc(20% - 20px);
+            margin-bottom: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background-color: #fff;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .poster {
+            width: 100%;
+            height: auto;
+        }
+
+        .info {
+            padding: 15px;
+            color: black; /* Changed text color to black */
+        }
+
+        h3,
+        p {
+            margin: 0;
+        }
+
+        .play-pause-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background-color: rgba(0, 0, 0, 0.5);
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            font-size: 18px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="playlist-title">OpenMyCar-רדיו ישראלי</div>
+    <div id="playlist">
+        <!-- Add all 17 radio station cards here -->
+        <!-- Repeat the below div structure for each radio station -->
+        <div class="card" audiourl="https://25643.live.streamtheworld.com/KAN_BET.mp3" audioposter="https://ofirapps.github.io/Israeli-radios/kanB.png">
+            <div class="play-pause-btn">▶️</div> <!-- Play/pause button -->
+            <img class="poster" src="https://ofirapps.github.io/Israeli-radios/kanB.png" alt="Radio Poster">
+            <div class="info">
+                <h3>כאן ב' רשת</h3>
+            </div>
+        </div>
+        <!-- Repeat the above div structure for each radio station -->
+        <div class="card" audiourl="http://glzwizzlv.bynetcdn.com/glglz_mp3" audioposter="https://ofirapps.github.io/Israeli-radios/galgalatz.png">
+            <div class="play-pause-btn">▶️</div>
+            <img class="poster" src="https://ofirapps.github.io/Israeli-radios/galgalatz.png" alt="Radio Poster">
+            <div class="info">
+                <h3>גלגלצ</h3>
+            </div>
+        </div>        
+        <!-- Repeat the above div structure for each radio station -->
+        <div class="card" audiourl="http://glzwizzlv.bynetcdn.com/glz_mp3" audioposter="https://ofirapps.github.io/Israeli-radios/galatz.png">
+            <div class="play-pause-btn">▶️</div>
+            <img class="poster" src="https://ofirapps.github.io/Israeli-radios/galatz.png" alt="Radio Poster">
+            <div class="info">
+                <h3>גלי צה"ל</h3>
+            </div>
+        </div>
+        <!-- Repeat the above div structure for each radio station -->
+        <div class="card" audiourl="https://25533.live.streamtheworld.com/KAN_GIMMEL.mp3" audioposter="https://ofirapps.github.io/Israeli-radios/KanG.png">
+            <div class="play-pause-btn">▶️</div>
+            <img class="poster" src="https://ofirapps.github.io/Israeli-radios/KanG.png" alt="Radio Poster">
+            <div class="info">
+                <h3>כאן ג</h3>
+            </div>
+        </div>
+        <!-- Repeat the above div structure for each radio station -->
+        <div class="card" audiourl="https://22673.live.streamtheworld.com/KAN_88.mp3" audioposter="https://ofirapps.github.io/Israeli-radios/88FM.png">
+            <div class="play-pause-btn">▶️</div>
+            <img class="poster" src="https://ofirapps.github.io/Israeli-radios/88FM.png" alt="Radio Poster">
+            <div class="info">
+                <h3>רדיו 88</h3>
+            </div>
+        </div>
+        <!-- Repeat the above div structure for each radio station -->
+        <div class="card" audiourl="http://102.livecdn.biz/102fm_aac" audioposter="https://ofirapps.github.io/Israeli-radios/telavivradio.png">
+            <div class="play-pause-btn">▶️</div>
+            <img class="poster" src="https://ofirapps.github.io/Israeli-radios/telavivradio.png" alt="Radio Poster">
+            <div class="info">
+                <h3>רדיו תל אביב</h3>
+            </div>
+        </div>
+        <!-- Repeat the above div structure for each radio station -->
+        <div class="card" audiourl="https://radio.streamgates.net/stream/101fm" audioposter="https://ofirapps.github.io/Israeli-radios/101-jerusalem.png">
+            <div class="play-pause-btn">▶️</div>
+            <img class="poster" src="https://ofirapps.github.io/Israeli-radios/101-jerusalem.png" alt="Radio Poster">
+            <div class="info">
+                <h3>רדיו ירושלים</h3>
+            </div>
+        </div>
+        <!-- Repeat the above div structure for each radio station -->
+        <div class="card" audiourl="https://cdn.cybercdn.live/Darom_1015FM/Live/icecast.audio" audioposter="https://jeep4x4.co.il/wp-content/uploads/2020/09/N4qPGx4mJEAQQMCKc4vPp9CZcvjZlGlDQhSmdhlQ.d110a0.webp">
+            <div class="play-pause-btn">▶️</div>
+            <img class="poster" src="https://jeep4x4.co.il/wp-content/uploads/2020/09/N4qPGx4mJEAQQMCKc4vPp9CZcvjZlGlDQhSmdhlQ.d110a0.webp" alt="Radio Poster">
+            <div class="info">
+                <h3>רדיו דרום</h3>
+            </div>
+        </div>
+        <!-- Repeat the above div structure for each radio station -->
+        <div class="card" audiourl="https://eco01.livecdn.biz/ecolive/99fm/icecast.audio" audioposter="https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/eco99fm.png">
+            <div class="play-pause-btn">▶️</div>
+            <img class="poster" src="https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/eco99fm.png" alt="Radio Poster">
+            <div class="info">
+                <h3>99FM אקו</h3>
+            </div>
+        </div>
+        <!-- Repeat the above div structure for each radio station -->
+        <div class="card" audiourl="https://liveradio.co.il/radio5" audioposter="https://static.rlive.co.il/storage/uploads/stations/9hLzgHzJY3c5IXVuEcbatQecqOkf80Z9BL2nZLj7.png">
+            <div class="play-pause-btn">▶️</div>
+            <img class="poster" src="https://static.rlive.co.il/storage/uploads/stations/9hLzgHzJY3c5IXVuEcbatQecqOkf80Z9BL2nZLj7.png" alt="Radio Poster">
+            <div class="info">
+                <h3>רדיו 5 מזרחית</h3>
+            </div>
+        </div>
+        <!-- Repeat the above div structure for each radio station -->
+        <div class="card" audiourl="https://radio.streamgates.net/stream/hatahana" audioposter="https://static.rlive.co.il/storage/uploads/stations/Lr42mnAUBi672dnR2SCV5qJ5vMiF3IyXNWDWBAgF.jpeg">
+            <div class="play-pause-btn">▶️</div>
+            <img class="poster" src="https://static.rlive.co.il/storage/uploads/stations/Lr42mnAUBi672dnR2SCV5qJ5vMiF3IyXNWDWBAgF.jpeg" alt="Radio Poster">
+            <div class="info">
+                <h3>רדיו התחנה</h3>
+            </div>
+        </div>
+        <!-- Repeat the above div structure for each radio station -->
+        <div class="card" audiourl="https://cdn.cybercdn.live/Radios_100FM/Audio/icecast.audio" audioposter="https://raw.githubusercontent.com/soulnous/mybabe/main/radius_100fm%20(1).png">
+            <div class="play-pause-btn">▶️</div>
+            <img class="poster" src="https://raw.githubusercontent.com/soulnous/mybabe/main/radius_100fm%20(1).png" alt="Radio Poster">
+            <div class="info">
+                <h3>100FM רדיוס</h3>
+            </div>
+        </div>
+        <!-- Repeat the above div structure for each radio station -->
+        <div class="card" audiourl="http://91fm.streamgates.net/Lev91Fm" audioposter="https://static-media.streema.com/media/cache/95/37/95375b58e65553c141562fdc4df7bee1.jpg">
+            <div class="play-pause-btn">▶️</div>
+            <img class="poster" src="https://static-media.streema.com/media/cache/95/37/95375b58e65553c141562fdc4df7bee1.jpg" alt="Radio Poster">
+            <div class="info">
+                <h3>90FM רדיו</h3>
+            </div>
+        </div>
+        <!-- Repeat the above div structure for each radio station -->
+        <div class="card" audiourl="https://media2.93fm.co.il/livemusic" audioposter="https://static.rlive.co.il/storage/uploads/stations/kdc1v4bKkOzy3J1JLvJ5r8d0YchCmCqHnKvrkzI9.png">
+            <div class="play-pause-btn">▶️</div>
+            <img class="poster" src="https://static.rlive.co.il/storage/uploads/stations/kdc1v4bKkOzy3J1JLvJ5r8d0YchCmCqHnKvrkzI9.png" alt="Radio Poster">
+            <div class="info">
+                <h3>93FM רדיו</h3>
+            </div>
+        </div>
+        <!-- Repeat the above div structure for each radio station -->
+        <div class="card" audiourl="http://ads11.livecdn.biz:80/radiohaifa" audioposter="https://static.rlive.co.il/storage/uploads/stations/PjF12mnENrlL0lCVMyaMkpOxfup163AcLcsaRCY5.png">
+            <div class="play-pause-btn">▶️</div>
+            <img class="poster" src="https://static.rlive.co.il/storage/uploads/stations/PjF12mnENrlL0lCVMyaMkpOxfup163AcLcsaRCY5.png" alt="Radio Poster">
+            <div class="info">
+                <h3>רדיו חיפה</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    $(document).ready(function () {
+        var audioElement = document.createElement('audio');
+        audioElement.setAttribute('src', '');
+        audioElement.setAttribute('autoplay', 'autoplay');
+
+        // Click to play/pause
+        $('.card').click(function () {
+            var audiourl = $(this).attr('audiourl');
+            if (audiourl !== "") {
+                if (audioElement.getAttribute('src') !== audiourl) {
+                    audioElement.setAttribute('src', audiourl);
+                    audioElement.play();
+                    $(this).find('.play-pause-btn').text('⏸️'); // Change play button to pause button
+                } else {
+                    if (audioElement.paused) {
+                        audioElement.play();
+                        $(this).find('.play-pause-btn').text('⏸️'); // Change play button to pause button
+                    } else {
+                        audioElement.pause();
+                        $(this).find('.play-pause-btn').text('▶️'); // Change pause button to play button
+                    }
+                }
+            }
+        });
+
+        // Search functionality
+        $('#search').on('keyup', function () {
+            var value = $(this).val().toLowerCase();
+            $('#playlist .card').filter(function () {
+                $(this).toggle($(this).text().toLowerCase().indexOf(value) > -1)
+            });
+        });
+    });
+</script>
+</body>
+</html>
