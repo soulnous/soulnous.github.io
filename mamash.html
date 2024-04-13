@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Car Multimedia Unlocking</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap">
+  <style>
+    /* Add your CSS styles here */
+    body {
+      font-family: 'Roboto', sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f7f7f7;
+      color: #333;
+    }
+    header {
+      background-color: #333;
+      padding: 20px 0;
+      text-align: center;
+      font-weight: 700;
+      font-size: 24px;
+      color: #fff;
+    }
+    nav {
+      background-color: #333;
+      text-align: center;
+      overflow: hidden;
+    }
+    nav a {
+      display: inline-block;
+      color: #fff;
+      text-align: center;
+      padding: 14px 20px; /* Adjusted padding */
+      text-decoration: none;
+      font-size: 18px;
+      font-weight: bold;
+      box-sizing: border-box; /* Ensure padding doesn't increase the width */
+    }
+    nav a:hover {
+      background-color: #555;
+    }
+    .content {
+      display: none; /* Hide all content initially */
+      padding: 20px;
+      background-color: #f7f7f7;
+      border-radius: 10px;
+      margin-top: 20px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      text-align: center; /* Center text horizontally */
+    }
+    .active {
+      display: block; /* Display active content */
+    }
+    .video-container {
+      display: inline-block;
+      width: calc(25% - 20px); /* Adjusted width for small squares */
+      margin: 10px;
+      vertical-align: top; /* Align videos at the top */
+      background-color: #fff; /* Added background color for clarity */
+      border-radius: 10px; /* Rounded corners */
+      overflow: hidden; /* Hide overflow content */
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); /* Added shadow for depth */
+    }
+    .video-container h3 {
+      margin-top: 0; /* Remove top margin for video titles */
+    }
+    .video-container iframe {
+      width: 100%;
+      height: 100%; /* Set height to 100% for square shape */
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="https://static.wixstatic.com/media/3e9f05_70c80a61cce04660a48de5ea59e995ac~mv2.png/v1/fill/w_248,h_257,al_c,q_85,usm_0.66_1.00_0.01,enc_auto/new-website_logo_transparent_background_.png" alt="Your Logo" style="max-width: 200px;">
+  </header>
+  <nav>
+    <a href="#home">בית</a>
+    <a href="#about">קצת עלינו</a>
+    <a href="#services"> הוספת כל האפליקציות למסך המקורי</a>
+    <a href="#portfolio">Apple CarPlay & Android Auto הפעלת</a>
+    <a href="#contact">צרו קשר</a>
+  </nav>
+  <div id="home" class="content active">
+    <h2>Welcome to Car Multimedia Unlocking!</h2>
+    <p>We specialize in unlocking multimedia systems in cars and adding all apps for a seamless entertainment experience.</p>
+  </div>
+  <div id="about" class="content">
+    <h2>About Us</h2>
+    <p>ברוכים הבאים לאתר שלנו!
+
+OpenMyCar - IL מתעסקת בעיקר בהוספת פונקציות לרכב שלכם במחיר הזול בישראל!
+
+אנו שמים דגש על זה שהדברים שאנו עושים הם ללא פגיעה באחראיות הרכב והמכשיר מולטימדיה שברכב !
+
+OpenMyCar - IL הינה בלעדית גם בחלק מהדברים אשר מציעה.
+
+אנו דואגים תמיד לספק ולתת את השירות הטוב ביותר וכמובן לדאוג למחיר הזול בישראל!
+
+</p>
+  </div>
+  <div id="services" class="content">
+    <h2>Our Services</h2>
+    <p>Discover the range of services we offer, from unlocking systems to installing apps and providing ongoing support.</p>
+  </div>
+  <div id="portfolio" class="content">
+    <h2>Portfolio</h2>
+    <div class="video-container">
+      <h3>BYD Atto 3</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/-gTaNmrYous" frameborder="0" allowfullscreen></iframe>
+    </div>
+    <div class="video-container">
+      <h3>BYD Seal</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/rNfSaQquNyo" frameborder="0" allowfullscreen></iframe>
+    </div>
+    <div class="video-container">
+      <h3>Skywell</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/-nUWrpT6yMo" frameborder="0" allowfullscreen></iframe>
+    </div>
+    <div class="video-container">
+      <h3>SERES 5</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/lAAL56DglaU" frameborder="0" allowfullscreen></iframe>
+    </div>
+    <div class="video-container">
+      <h3>Chery FX EV</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/VIDEO_ID_HERE" frameborder="0" allowfullscreen></iframe>
+    </div>
+	<div class="video-container">
+      <h3>מיצובישי</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/NMuiNHg9_Yc" frameborder="0" allowfullscreen></iframe>
+    </div>
+	<div class="video-container">
+      <h3>Seat ברכבי Full-Link הפעלת</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/l4DA-VxoqxY" frameborder="0" allowfullscreen></iframe>
+    </div>
+    <div class="video-container">
+      <h3>BMW ברכבי Apple CarPlay הפעלת</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/oFMvd6z8VFQ" frameborder="0" allowfullscreen></iframe>
+    </div>
+	    <div class="video-container">
+      <h3>BMW ברכבי Android Auto הפעלת</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/8qT4BlJeRm0" frameborder="0" allowfullscreen></iframe>
+    </div>
+	    <div class="video-container">
+      <h3>Skoda ברכבי Apple CarPlay הפעלת</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/QvsGKQzkWIk" frameborder="0" allowfullscreen></iframe>
+    </div>
+	    <div class="video-container">
+      <h3>Audi ברכבי Apple CarPlay הפעלת</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/noEQfczUXfI" frameborder="0" allowfullscreen></iframe>
+    </div>
+	    <div class="video-container">
+      <h3>Volkswagen ברכבי Apple CarPlay הפעלת</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/kQmh57x3WjY" frameborder="0" allowfullscreen></iframe>
+    </div>
+	    <div class="video-container">
+      <h3>MiniCooper ברכבי Apple CarPlay הפעלת</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/Vmwf6AQ2hes" frameborder="0" allowfullscreen></iframe>
+    </div>
+	    <div class="video-container">
+      <h3>Mercedes ברכבי Apple CarPlay הפעלת</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/i-TM3Nd-v_0" frameborder="0" allowfullscreen></iframe>
+    </div>
+    <div class="video-container">
+      <h3>Hyundai ברכבי Apple CarPlay הפעלת</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/d-fldG9vW7I" frameborder="0" allowfullscreen></iframe>
+	  </div>
+	    <div class="video-container">
+      <h3>Suzuki ברכבי Android Auto הפעלת</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/CXBD7HzV3xQ" frameborder="0" allowfullscreen></iframe>
+    </div>
+	    <div class="video-container">
+      <h3>Suzuki ברכבי Apple CarPlay הפעלת</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/1TC4dRYNg7U" frameborder="0" allowfullscreen></iframe>
+    </div>
+    <div class="video-container">
+      <h3>Toyota ברכבי Apple CarPlay הפעלת</h3>
+      <iframe width="280" height="280" src="https://www.youtube.com/embed/L7QhH-FsN4M" frameborder="0" allowfullscreen></iframe>
+    </div>
+  </div>
+  <div id="contact" class="content">
+    <h2>Contact Us</h2>
+    <p>Get in touch with us for inquiries, appointments, or any assistance you need regarding your car's multimedia system.</p>
+  </div>
+  <script>
+    const tabs = document.querySelectorAll('nav a');
+    const contents = document.querySelectorAll('.content');
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', (e) => {
+        e.preventDefault();
+        const targetId = tab.getAttribute('href').substring(1);
+        contents.forEach((content) => {
+          if (content.id === targetId) {
+            content.classList.add('active');
+          } else {
+            content.classList.remove('active');
+          }
+        });
+      });
+    });
+  </script>
+</body>
+</html>
