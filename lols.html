@@ -4,128 +4,127 @@
 <head>
     <meta charset="UTF-8">
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
-    <title>ליאור אדרי - מאפרת מקצועית</title>
-    <meta property="og:locale" content="he_IL">
-    <meta property="og:type" content="article">
-    <meta property="og:title" content="ליאור אדרי - מאפרת מקצועית">
-    <meta property="og:image" content="images/MUoTEu2EKI0B.png">
-    <meta name="twitter:card" content="summary_large_image">
 
 ```
+<title>ליאור אדרי - מאפרת מקצועית</title>
+<meta property="og:locale" content="he_IL">
+<meta property="og:type" content="article">
+<meta property="og:title" content="ליאור אדרי - מאפרת מקצועית">
+<meta property="og:image" content="images/MUoTEu2EKI0B.png">
+<meta name="twitter:card" content="summary_large_image">
+
 <!-- Font Awesome CSS for icons -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 
 <style>
     body {
-        font-family: 'Rubik', Arial, sans-serif;
         margin: 0;
         padding: 0;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        min-height: 100vh;
+        font-family: 'Rubik', Arial, sans-serif;
         direction: rtl;
     }
     
-    .container {
-        max-width: 800px;
-        margin: 0 auto;
+    .elementor-section {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .elementor-container {
+        max-width: 1200px;
+        width: 100%;
         padding: 20px;
     }
     
-    .profile-section {
+    .elementor-column {
         text-align: center;
+    }
+    
+    .elementor-widget-wrap {
         background: rgba(255, 255, 255, 0.1);
         backdrop-filter: blur(10px);
         border-radius: 20px;
-        padding: 40px 20px;
-        margin-bottom: 30px;
+        padding: 40px;
         box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
         border: 1px solid rgba(255, 255, 255, 0.18);
     }
     
-    .logo {
-        width: 100%;
-        max-width: 600px;
+    .elementor-widget-image img {
+        max-width: 100%;
         height: auto;
         border-radius: 15px;
         margin-bottom: 20px;
     }
     
-    .profile-image {
-        width: 200px;
-        height: 200px;
-        border-radius: 50%;
-        margin: 20px auto;
-        border: 5px solid rgba(255, 255, 255, 0.3);
-    }
-    
-    .name {
-        font-size: 2.5em;
-        font-weight: bold;
+    .elementor-heading-title {
         color: white;
-        margin: 20px 0 10px 0;
+        margin: 20px 0;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
     }
     
-    .title {
+    .elementor-heading-title:first-of-type {
+        font-size: 2.5em;
+        font-weight: bold;
+    }
+    
+    .elementor-heading-title:last-of-type {
         font-size: 1.8em;
-        color: #f0f0f0;
-        margin-bottom: 30px;
         font-weight: 300;
     }
     
-    .toggle-section {
+    .elementor-toggle {
+        margin: 20px 0;
+    }
+    
+    .elementor-toggle-item {
         background: rgba(255, 255, 255, 0.05);
         border-radius: 15px;
-        margin: 20px 0;
+        margin: 15px 0;
         overflow: hidden;
         border: 1px solid rgba(255, 255, 255, 0.1);
     }
     
-    .toggle-button {
+    .elementor-tab-title {
         background: rgba(255, 255, 255, 0.1);
-        color: white;
         padding: 20px;
         cursor: pointer;
-        font-size: 1.2em;
-        font-weight: bold;
-        border: none;
-        width: 100%;
-        text-align: center;
         transition: all 0.3s ease;
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
     
-    .toggle-button:hover {
-        background: rgba(255, 255, 255, 0.2);
-        transform: translateY(-2px);
-    }
-    
-    .toggle-button.active {
+    .elementor-tab-title:hover {
         background: rgba(255, 255, 255, 0.2);
     }
     
-    .toggle-content {
-        padding: 25px;
+    .elementor-toggle-title {
         color: white;
-        line-height: 1.8;
-        display: none;
-        animation: fadeIn 0.5s ease-in;
-    }
-    
-    .toggle-content.show {
+        font-size: 1.2em;
+        font-weight: bold;
+        text-decoration: none;
         display: block;
     }
     
-    .toggle-content img {
-        width: 100%;
-        max-width: 400px;
-        height: auto;
-        border-radius: 10px;
-        margin: 15px 0;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    .elementor-tab-content {
+        display: none;
+        padding: 25px;
+        color: white;
+        line-height: 1.8;
     }
     
-    .social-buttons {
+    .elementor-tab-content.show {
+        display: block;
+    }
+    
+    .elementor-tab-content img {
+        max-width: 300px;
+        height: 200px;
+        border-radius: 10px;
+        margin: 15px 0;
+    }
+    
+    .elementor-button-wrapper {
         display: flex;
         justify-content: center;
         gap: 15px;
@@ -133,7 +132,7 @@
         flex-wrap: wrap;
     }
     
-    .social-button {
+    .elementor-button {
         background: rgba(255, 255, 255, 0.1);
         color: white;
         padding: 12px 20px;
@@ -147,41 +146,30 @@
         gap: 8px;
     }
     
-    .social-button:hover {
+    .elementor-button:hover {
         background: rgba(255, 255, 255, 0.2);
         transform: translateY(-3px);
-        box-shadow: 0 5px 20px rgba(0,0,0,0.3);
     }
     
-    .social-button i {
+    .elementor-button i {
         font-size: 1.2em;
     }
     
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
     @media (max-width: 768px) {
-        .name {
+        .elementor-heading-title:first-of-type {
             font-size: 2em;
         }
         
-        .title {
+        .elementor-heading-title:last-of-type {
             font-size: 1.4em;
         }
         
-        .profile-image {
-            width: 150px;
-            height: 150px;
-        }
-        
-        .social-buttons {
+        .elementor-button-wrapper {
             flex-direction: column;
             align-items: center;
         }
         
-        .social-button {
+        .elementor-button {
             width: 200px;
             justify-content: center;
         }
@@ -190,104 +178,162 @@
 ```
 
 </head>
-<body>
-    <div class="container">
-        <div class="profile-section">
-            <img src="images/MUoTEu2EKI0B.png" alt="לוגו ליאור אדרי" class="logo">
-            <img src="images/1ZzmtiWtNK75.png" alt="ליאור אדרי" class="profile-image">
-            <h1 class="name">ליאור אדרי</h1>
-            <h2 class="title">מאפרת מקצועית</h2>
+<body class="rtl page-template page-template-elementor_canvas page page-id-20345 elementor-default elementor-template-canvas elementor-kit-7 elementor-page elementor-page-20345">
+
+<div data-elementor-type="wp-page" data-elementor-id="20345" class="elementor elementor-20345" data-elementor-post-type="page">
+<section class="elementor-section elementor-top-section elementor-element elementor-element-e43bc62 elementor-section-height-min-height elementor-section-boxed elementor-section-height-default elementor-section-items-middle" data-id="e43bc62" data-element_type="section">
+<div class="elementor-background-overlay"></div>
+<div class="elementor-container elementor-column-gap-default">
+<div class="elementor-column elementor-col-100 elementor-top-column elementor-element elementor-element-864ab10" data-id="864ab10" data-element_type="column">
+<div class="elementor-widget-wrap elementor-element-populated">
+
+<div class="elementor-element elementor-element-57ec7d9 elementor-widget elementor-widget-image" data-id="57ec7d9" data-element_type="widget" data-widget_type="image.default">
+<div class="elementor-widget-container">
+<img fetchpriority="high" decoding="async" width="800" height="451" src="images/MUoTEu2EKI0B.png" class="attachment-large size-large wp-image-20529" alt="" srcset="images/MUoTEu2EKI0B.png 1024w, images/f1yGPm73mfQr.png 600w, images/kA8PefV50aCZ.png 300w, images/CNi1zzYcvBaQ.png 768w, images/bdmAMunNO8Kd.png 1536w, images/6hANy4Ojwz5j.png 1640w" sizes="(max-width: 800px) 100vw, 800px"> 
+</div>
+</div>
+
+<div class="elementor-element elementor-element-331fee5 elementor-widget elementor-widget-image" data-id="331fee5" data-element_type="widget" data-widget_type="image.default">
+<div class="elementor-widget-container">
+<img decoding="async" width="500" height="500" src="images/1ZzmtiWtNK75.png" class="attachment-large size-large wp-image-20501" alt="" srcset="images/1ZzmtiWtNK75.png 500w, images/hWjTUMr4nmma.png 300w, images/d3Ujft24K7k2.png 100w, images/8fdqgeR71LWa.png 150w" sizes="(max-width: 500px) 100vw, 500px"> 
+</div>
+</div>
+
+<div class="elementor-element elementor-element-cf9ca06 elementor-widget elementor-widget-heading" data-id="cf9ca06" data-element_type="widget" data-widget_type="heading.default">
+<div class="elementor-widget-container">
+<h2 class="elementor-heading-title elementor-size-default" style="font-family: Arial, sans-serif; font-weight: bold;">ליאור אדרי</h2>
+</div>
+</div>
+
+<div class="elementor-element elementor-element-35586bf elementor-widget elementor-widget-heading" data-id="35586bf" data-element_type="widget" data-widget_type="heading.default">
+<div class="elementor-widget-container">
+<h2 class="elementor-heading-title elementor-size-default">מאפרת מקצועית</h2> 
+</div>
+</div>
+
+<div class="elementor-element elementor-element-bf4f7e6 elementor-widget elementor-widget-toggle" data-id="bf4f7e6" data-element_type="widget" data-widget_type="toggle.default">
+<div class="elementor-widget-container">
+<div class="elementor-toggle">
+<div class="elementor-toggle-item">
+<div id="elementor-tab-title-about" class="elementor-tab-title" data-tab="1" role="button" aria-controls="elementor-tab-content-about" aria-expanded="false" onclick="toggleContent('about')">
+<a class="elementor-toggle-title" tabindex="0"><strong> קצת עליי </strong></a>
+</div>
+<div id="elementor-tab-content-about" class="elementor-tab-content elementor-clearfix" data-tab="1" role="region" aria-labelledby="elementor-tab-title-about">
+    <p><span style="color: #ffffff;">היי יפות שלי,</span></p>
+    <p><span style="color: #ffffff;">אני ליאור אדרי, מאפרת מקצועית בת 24 עם ניסיון של 5 שנים בתחום.</span></p>
+    <p><span style="color: #ffffff;">אני מתמחה באיפור לאירועים החשובים בחייכן, ימי צילום והפקות אופנה,</span></p>
+    <p><span style="color: #ffffff;">ובנוסף, יוצרת סרטוני הדרכה שמסבירים בצורה ברורה ופשוטה איך להשיג את המראה המושלם.</span></p>
+    <p><span style="color: #ffffff;">איפור עבורי הוא הרבה מעבר למקצוע - הוא אמנות ודרך לבטא את היצירתיות שלי.</span></p>
+    <p><span style="color: #ffffff;">אני עובדת בשיתוף פעולה עם חברות איפור מובילות, ויוצרת עבורן תוכן שמדגיש את היתרונות של המוצרים שלהן.</span></p>
+    <p><span style="color: #ffffff;">אז אם את מחפשת מאפרת לאירוע הבא שלך או מעוניינת ללמוד טיפים מקצועיים,</span></p>
+    <p><span style="color: #ffffff;">אני כאן כדי ללוות אותך בכל שלב 🤍</span></p>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="elementor-element elementor-element-bf4f7e7 elementor-widget elementor-widget-toggle" data-id="bf4f7e7" data-element_type="widget" data-widget_type="toggle.default">
+<div class="elementor-widget-container">
+<div class="elementor-toggle">
+<div class="elementor-toggle-item">
+<div id="elementor-tab-title-bridal" class="elementor-tab-title" data-tab="1" role="button" aria-controls="elementor-tab-content-bridal" aria-expanded="false" onclick="toggleContent('bridal')">
+<a class="elementor-toggle-title" tabindex="0"><strong>איפור כלות</strong></a>
+</div>
+<div id="elementor-tab-content-bridal" class="elementor-tab-content elementor-clearfix" data-tab="1" role="region" aria-labelledby="elementor-tab-title-bridal">
+<p><span style="color: #ffffff;">
+<img decoding="async" class="alignnone wp-image-20533 size-medium" src="images/FAotnABWtmSA.png" alt="" width="300" height="200" srcset="images/FAotnABWtmSA.png 300w, images/aw2pIAhtCxMV.png 600w, images/aw2pIAhtCxMV.png 768w, images/aw2pIAhtCxMV.png 777w" sizes="(max-width: 300px) 100vw, 300px">
+</span></p>
+<p><span style="color: #ffffff;">איפור כלות הוא התמחות מיוחדת שלי. אני יוצרת מראה עדין ומושלם שיחזיק במשך כל היום הגדול.</span></p>
+<p><span style="color: #ffffff;">כל כלה מקבלת טיפול אישי ומותאם במיוחד עבורה, עם התייעצות מקדימה וניסיון איפור לפני החתונה.</span></p>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="elementor-element elementor-element-03f2732 elementor-widget elementor-widget-toggle" data-id="03f2732" data-element_type="widget" data-widget_type="toggle.default">
+<div class="elementor-widget-container">
+<div class="elementor-toggle">
+<div class="elementor-toggle-item">
+<div id="elementor-tab-title-evening" class="elementor-tab-title" data-tab="1" role="button" aria-controls="elementor-tab-content-evening" aria-expanded="false" onclick="toggleContent('evening')">
+<a class="elementor-toggle-title" tabindex="0"><strong>איפור ערב</strong></a>
+</div>
+<div id="elementor-tab-content-evening" class="elementor-tab-content elementor-clearfix" data-tab="1" role="region" aria-labelledby="elementor-tab-title-evening">
+<p><span style="color: #ffffff;"><img decoding="async" class="alignnone wp-image-20533 size-medium" src="images/anotherone.png" alt="" width="300" height="200" srcset="images/anotherone1.png 300w, images/anotherone2.png 600w, images/anotherone2.png 768w, images/anotherone2.png 777w" sizes="(max-width: 300px) 100vw, 300px"></span></p>
+<p><span style="color: #ffffff;">איפור ערב למסיבות, אירועים ואוקזיות מיוחדות.</span></p>
+<p><span style="color: #ffffff;">מראה דרמטי ומושך עין שיבלוט בכל אירוע.</span></p>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="elementor-element elementor-element-062c699 elementor-mobile-align-center elementor-widget elementor-widget-button" data-id="062c699" data-element_type="widget" data-widget_type="button.default">
+    <div class="elementor-widget-container">
+        <div class="elementor-button-wrapper">
+            <!-- WhatsApp Button -->
+            <a class="elementor-button elementor-button-link elementor-size-sm" href="https://wa.me/972542020853" target="_blank">
+                <span class="elementor-button-content-wrapper">
+                    <i class="fab fa-whatsapp"></i> WhatsApp
+                </span>
+            </a>
 
 ```
-        <!-- קצת עליי -->
-        <div class="toggle-section">
-            <button class="toggle-button" onclick="toggleContent('about')">
-                <strong>קצת עליי</strong>
-            </button>
-            <div id="about" class="toggle-content">
-                <p>היי יפות שלי,</p>
-                <p>אני ליאור אדרי, מאפרת מקצועית בת 24 עם ניסיון של 5 שנים בתחום.</p>
-                <p>אני מתמחה באיפור לאירועים החשובים בחייכן, ימי צילום והפקות אופנה,</p>
-                <p>ובנוסף, יוצרת סרטוני הדרכה שמסבירים בצורה ברורה ופשוטה איך להשיג את המראה המושלם.</p>
-                <p>איפור עבורי הוא הרבה מעבר למקצוע - הוא אמנות ודרך לבטא את היצירתיות שלי.</p>
-                <p>אני עובדת בשיתוף פעולה עם חברות איפור מובילות, ויוצרת עבורן תוכן שמדגיש את היתרונות של המוצרים שלהן.</p>
-                <p>אז אם את מחפשת מאפרת לאירוע הבא שלך או מעוניינת ללמוד טיפים מקצועיים,</p>
-                <p>אני כאן כדי ללוות אותך בכל שלב 🤍</p>
-            </div>
-        </div>
-        
-        <!-- איפור כלות -->
-        <div class="toggle-section">
-            <button class="toggle-button" onclick="toggleContent('bridal')">
-                <strong>איפור כלות</strong>
-            </button>
-            <div id="bridal" class="toggle-content">
-                <img src="images/FAotnABWtmSA.png" alt="איפור כלות">
-                <p>איפור כלות הוא התמחות מיוחדת שלי. אני יוצרת מראה עדין ומושלם שיחזיק במשך כל היום הגדול.</p>
-                <p>כל כלה מקבלת טיפול אישי ומותאם במיוחד עבורה, עם התייעצות מקדימה וניסיון איפור לפני החתונה.</p>
-            </div>
-        </div>
-        
-        <!-- איפור ערב -->
-        <div class="toggle-section">
-            <button class="toggle-button" onclick="toggleContent('evening')">
-                <strong>איפור ערב</strong>
-            </button>
-            <div id="evening" class="toggle-content">
-                <img src="images/anotherone.png" alt="איפור ערב">
-                <p>איפור ערב למסיבות, אירועים ואוקזיות מיוחדות.</p>
-                <p>מראה דרמטי ומושך עין שיבלוט בכל אירוע.</p>
-            </div>
-        </div>
-        
-        <!-- כפתורי רשתות חברתיות -->
-        <div class="social-buttons">
-            <a href="https://wa.me/972542020853" target="_blank" class="social-button">
-                <i class="fab fa-whatsapp"></i>
-                WhatsApp
-            </a>
-            <a href="https://www.instagram.com/_lioredri" target="_blank" class="social-button">
-                <i class="fab fa-instagram"></i>
-                Instagram
-            </a>
-            <a href="https://www.tiktok.com/@_lioredri" target="_blank" class="social-button">
-                <i class="fab fa-tiktok"></i>
-                TikTok
-            </a>
-        </div>
+        <!-- Instagram Button -->
+        <a class="elementor-button elementor-button-link elementor-size-sm" href="https://www.instagram.com/_lioredri" target="_blank">
+            <span class="elementor-button-content-wrapper">
+                <i class="fab fa-instagram"></i> Instagram
+            </span>
+        </a>
+
+        <!-- TikTok Button -->
+        <a class="elementor-button elementor-button-link elementor-size-sm" href="https://www.tiktok.com/@_lioredri" target="_blank">
+            <span class="elementor-button-content-wrapper">
+                <i class="fab fa-tiktok"></i> TikTok
+            </span>
+        </a>
     </div>
+</div>
+```
+
+</div>
+
+</div>
+</div>
+</div>
+</section>
 </div>
 
 <script>
-    function toggleContent(sectionId) {
-        // סגירת כל הסקשנים הפתוחים
-        const allContents = document.querySelectorAll('.toggle-content');
-        const allButtons = document.querySelectorAll('.toggle-button');
-        
-        allContents.forEach(content => {
-            if (content.id !== sectionId) {
-                content.classList.remove('show');
-            }
-        });
-        
-        allButtons.forEach(button => {
-            button.classList.remove('active');
-        });
-        
-        // פתיחה/סגירה של הסקשן הנוכחי
-        const targetContent = document.getElementById(sectionId);
-        const targetButton = event.target.closest('.toggle-button');
-        
-        if (targetContent.classList.contains('show')) {
-            targetContent.classList.remove('show');
-            targetButton.classList.remove('active');
-        } else {
-            targetContent.classList.add('show');
-            targetButton.classList.add('active');
+function toggleContent(sectionId) {
+    // סגירת כל הסקשנים הפתוחים
+    const allContents = document.querySelectorAll('.elementor-tab-content');
+    const allTitles = document.querySelectorAll('.elementor-tab-title');
+    
+    allContents.forEach(content => {
+        if (content.id !== `elementor-tab-content-${sectionId}`) {
+            content.classList.remove('show');
         }
+    });
+    
+    allTitles.forEach(title => {
+        title.setAttribute('aria-expanded', 'false');
+    });
+    
+    // פתיחה/סגירה של הסקשן הנוכחי
+    const targetContent = document.getElementById(`elementor-tab-content-${sectionId}`);
+    const targetTitle = document.getElementById(`elementor-tab-title-${sectionId}`);
+    
+    if (targetContent.classList.contains('show')) {
+        targetContent.classList.remove('show');
+        targetTitle.setAttribute('aria-expanded', 'false');
+    } else {
+        targetContent.classList.add('show');
+        targetTitle.setAttribute('aria-expanded', 'true');
     }
+}
 </script>
-```
 
 </body>
 </html>
