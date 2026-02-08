@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>OpenMyCarIL - Tesla TV Player</title>
+  <title>OpenMyCarIL - Tesla TV Player v2</title>
   <link rel="icon" href="https://images.shulcloud.com/1105/uploads/OTT/vbstv-square-icon-512.jpg" type="image/x-icon">
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <style>
@@ -72,18 +72,25 @@
       width: 95%;
       height: 90%;
     }
-    #modeIndicator {
+    /* Debug panel */
+    #debugPanel {
       position: fixed;
       top: 5px;
       right: 5px;
-      background: rgba(0,0,0,0.7);
+      background: rgba(0,0,0,0.85);
       color: #0f0;
-      padding: 4px 8px;
-      font-size: 11px;
+      padding: 8px 12px;
+      font-size: 12px;
       font-family: monospace;
       border-radius: 4px;
       z-index: 9999;
+      line-height: 1.6;
+      min-width: 280px;
+      text-align: left;
     }
+    .debug-ok { color: #0f0; }
+    .debug-fail { color: #f00; }
+    .debug-warn { color: #ff0; }
   </style>
 </head>
 <body>
@@ -100,7 +107,7 @@
       <img id="displayImg" alt="TV Stream" />
     </div>
   </div>
-  <div id="modeIndicator">IMG MODE | FPS: 0</div>
+  <div id="debugPanel">Waiting for channel...</div>
 
   <script>
     var isPickerVisible = true;
@@ -109,17 +116,52 @@
     var frameCount = 0;
     var lastFpsUpdate = Date.now();
     var currentBlobUrl = null;
+    var blobSize = 0;
+    var videoReadyState = 0;
+    var videoPaused = true;
+    var drawImageWorking = false;
+    var toBlobWorking = false;
+    var imgUpdateWorking = false;
+    var lastFrameTime = 0;
 
     var hiddenVideo = document.getElementById('hiddenVideo');
     var captureCanvas = document.getElementById('captureCanvas');
     var captureCtx = captureCanvas.getContext('2d');
     var displayImg = document.getElementById('displayImg');
-    var modeIndicator = document.getElementById('modeIndicator');
+    var debugPanel = document.getElementById('debugPanel');
+
+    function updateDebug() {
+      var lines = [];
+      lines.push('=== TESLA DEBUG v2 ===');
+      lines.push('Video readyState: <span class="' + (videoReadyState >= 2 ? 'debug-ok' : 'debug-fail') + '">' + videoReadyState + '/4</span>');
+      lines.push('Video paused: <span class="' + (videoPaused ? 'debug-fail' : 'debug-ok') + '">' + videoPaused + '</span>');
+      lines.push('Video size: ' + hiddenVideo.videoWidth + 'x' + hiddenVideo.videoHeight);
+      lines.push('Video currentTime: ' + (hiddenVideo.currentTime || 0).toFixed(1) + 's');
+      lines.push('---');
+      lines.push('drawImage: <span class="' + (drawImageWorking ? 'debug-ok' : 'debug-fail') + '">' + (drawImageWorking ? 'OK' : 'BLOCKED') + '</span>');
+      lines.push('toBlob: <span class="' + (toBlobWorking ? 'debug-ok' : 'debug-fail') + '">' + (toBlobWorking ? 'OK' : 'BLOCKED') + '</span>');
+      lines.push('Blob size: ' + blobSize + ' bytes');
+      lines.push('img update: <span class="' + (imgUpdateWorking ? 'debug-ok' : 'debug-fail') + '">' + (imgUpdateWorking ? 'OK' : 'BLOCKED') + '</span>');
+      lines.push('---');
+      lines.push('FPS: <span class="' + (frameCount > 0 ? 'debug-ok' : 'debug-warn') + '">' + frameCount + '</span>');
+      debugPanel.innerHTML = lines.join('<br>');
+    }
+
+    // Update debug every second
+    setInterval(function() {
+      videoReadyState = hiddenVideo.readyState;
+      videoPaused = hiddenVideo.paused;
+      updateDebug();
+      frameCount = 0;
+    }, 1000);
 
     function startFrameCapture() {
       stopFrameCapture();
 
       function captureFrame() {
+        videoReadyState = hiddenVideo.readyState;
+        videoPaused = hiddenVideo.paused;
+
         if (hiddenVideo.readyState >= 2 && hiddenVideo.videoWidth > 0) {
           if (captureCanvas.width !== hiddenVideo.videoWidth ||
               captureCanvas.height !== hiddenVideo.videoHeight) {
@@ -127,27 +169,45 @@
             captureCanvas.height = hiddenVideo.videoHeight;
           }
 
-          captureCtx.drawImage(hiddenVideo, 0, 0);
+          // Test 1: Can we drawImage from video?
+          try {
+            captureCtx.drawImage(hiddenVideo, 0, 0);
+            // Check if pixels are non-zero (not black)
+            var pixel = captureCtx.getImageData(
+              Math.floor(captureCanvas.width / 2),
+              Math.floor(captureCanvas.height / 2),
+              1, 1
+            ).data;
+            drawImageWorking = (pixel[0] + pixel[1] + pixel[2]) > 0;
+          } catch(e) {
+            drawImageWorking = false;
+          }
 
+          // Test 2: Can we convert to blob?
           captureCanvas.toBlob(function(blob) {
             if (blob) {
+              toBlobWorking = true;
+              blobSize = blob.size;
+
+              // Test 3: Can we update img src?
               if (currentBlobUrl) {
                 URL.revokeObjectURL(currentBlobUrl);
               }
               currentBlobUrl = URL.createObjectURL(blob);
               displayImg.src = currentBlobUrl;
+              imgUpdateWorking = true;
 
               frameCount++;
-              var now = Date.now();
-              if (now - lastFpsUpdate >= 1000) {
-                modeIndicator.textContent = 'IMG MODE | FPS: ' + frameCount;
-                frameCount = 0;
-                lastFpsUpdate = now;
-              }
+            } else {
+              toBlobWorking = false;
             }
             frameLoopId = requestAnimationFrame(captureFrame);
           }, 'image/jpeg', 0.85);
         } else {
+          // Video not ready - if paused, try to play again
+          if (hiddenVideo.paused && hiddenVideo.src) {
+            hiddenVideo.play().catch(function(){});
+          }
           frameLoopId = requestAnimationFrame(captureFrame);
         }
       }
@@ -196,6 +256,12 @@
             });
           });
         });
+
+        // Monitor HLS errors
+        hls.on(Hls.Events.ERROR, function(event, data) {
+          debugPanel.innerHTML += '<br><span class="debug-fail">HLS ERROR: ' + data.type + ' - ' + data.details + '</span>';
+        });
+
         currentHls = hls;
       } else if (hiddenVideo.canPlayType('application/vnd.apple.mpegurl')) {
         hiddenVideo.src = url;
