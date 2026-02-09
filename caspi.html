@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>OpenMyCarIL - Tesla TV Player v4.2</title>
+  <title>OpenMyCarIL - Tesla TV Player v4.3</title>
   <link rel="icon" href="https://images.shulcloud.com/1105/uploads/OTT/vbstv-square-icon-512.jpg" type="image/x-icon">
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <style>
@@ -69,7 +69,7 @@
         dbg('DecQueue', videoDecoder.decodeQueueSize, 'info');
         dbg('DecState', videoDecoder.state, videoDecoder.state==='configured'?'ok':'warn');
       }
-      var html = '<b>=== TESLA v4.2 WebCodecs ===</b><br>';
+      var html = '<b>=== TESLA v4.3 WebCodecs ===</b><br>';
       for (var k in debugInfo) html += k+': '+debugInfo[k]+'<br>';
       debugPanel.innerHTML = html;
       frameCount = 0;
@@ -143,7 +143,7 @@
       // pre_defined(12) + width(2) + height(2) + horizresolution(4) + vertresolution(4) +
       // reserved(4) + frame_count(2) + compressorname(32) + depth(2) + pre_defined(2)
       // = 78 bytes after box header, then child boxes (avcC, etc.)
-      var innerStart = entry.offset + entry.headerSize + 70; // 8 + 70 = 78 from box start
+      var innerStart = entry.offset + entry.headerSize + 78; // 8 + 78 = 86 from box start
       var innerEnd = entry.offset + entry.size;
 
       // Extract width/height from avc1 box
@@ -155,8 +155,25 @@
 
       // Find avcC box inside avc1
       var avcCBoxes = findBoxes(initData, innerStart, innerEnd, 'avcC');
+
+      // Fallback: brute-force scan for 'avcC' box anywhere inside avc1 entry
       if (avcCBoxes.length === 0) {
-        dbg('Parse', 'No avcC box inside avc1', 'fail');
+        dbg('Parse', 'avcC not at offset 86, scanning...', 'warn');
+        for (var scan = entry.offset + entry.headerSize; scan < innerEnd - 8; scan++) {
+          if (initData[scan+4]===0x61 && initData[scan+5]===0x76 &&
+              initData[scan+6]===0x63 && initData[scan+7]===0x43) { // 'avcC'
+            var bSize = readU32(initData, scan);
+            if (bSize >= 8 && scan + bSize <= innerEnd) {
+              avcCBoxes.push({ offset: scan, size: bSize, headerSize: 8 });
+              dbg('Parse', 'avcC found at scan offset ' + (scan - entry.offset), 'ok');
+              break;
+            }
+          }
+        }
+      }
+
+      if (avcCBoxes.length === 0) {
+        dbg('Parse', 'No avcC box found anywhere in avc1!', 'fail');
         return null;
       }
 
