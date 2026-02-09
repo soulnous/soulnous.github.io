@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>OpenMyCarIL - Tesla TV Player v5.8</title>
+  <title>OpenMyCarIL - Tesla TV Player v5.9</title>
   <link rel="icon" href="https://images.shulcloud.com/1105/uploads/OTT/vbstv-square-icon-512.jpg" type="image/x-icon">
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <style>
@@ -19,7 +19,7 @@
     #videoContainer iframe { width:95%; height:90%; }
     #debugPanel { position:fixed; top:5px; right:5px; background:rgba(0,0,0,0.85); color:#0f0;
       padding:8px 12px; font-size:11px; font-family:monospace; border-radius:4px; z-index:9999;
-      line-height:1.5; min-width:280px; text-align:left; max-height:50vh; overflow-y:auto; }
+      line-height:1.5; min-width:320px; text-align:left; max-height:50vh; overflow-y:auto; }
     .dok { color:#0f0; } .dfail { color:#f00; } .dwarn { color:#ff0; } .dinfo { color:#0ff; }
   </style>
 </head>
@@ -53,6 +53,12 @@
     var avcCData = null;
     var segmentCount = 0;
     var sampleTimestamp = 0;
+    var droppedFrames = 0;
+
+    // Time offset: maps frame timestamps to audio.currentTime
+    // We discover this offset from the first frame: offset = firstFrameTs - audio.currentTime at that moment
+    var timeOffset = 0;
+    var timeOffsetSet = false;
 
     var audioVideo = document.getElementById('audioVideo');
     var renderCanvas = document.getElementById('renderCanvas');
@@ -65,7 +71,7 @@
     setInterval(function() {
       dbg('FPS', frameCount, frameCount > 0 ? 'ok' : 'warn');
       dbg('Audio', (audioVideo.currentTime||0).toFixed(1)+'s / '+(audioVideo.paused?'PAUSED':'playing'), audioVideo.paused?'warn':'ok');
-      var html = '<b>=== TESLA v5.8 ===</b><br>';
+      var html = '<b>=== TESLA v5.9 ===</b><br>';
       for (var k in debugInfo) html += k+': '+debugInfo[k]+'<br>';
       debugPanel.innerHTML = html;
       frameCount = 0;
@@ -176,12 +182,6 @@
       return version === 0 ? readU32(data, pos + 4) : readU32(data, pos + 8);
     }
 
-    // ---- Segment boundary marker ----
-    // We push a special marker into the frame queue when a new segment starts decoding.
-    // The render loop uses this to know where segment boundaries are.
-    var SEGMENT_MARKER = 'SEGMENT_BOUNDARY';
-    var segMarkerId = 0;
-
     // Process media segment - feed ALL samples to decoder immediately
     function processMediaSegment(data) {
       if (!videoDecoder || videoDecoder.state !== 'configured') return;
@@ -189,18 +189,6 @@
       var moofs = findBoxes(data, 0, data.byteLength, 'moof');
       var mdats = findBoxes(data, 0, data.byteLength, 'mdat');
       if (moofs.length === 0 || mdats.length === 0) return;
-
-      // Before decoding new segment: if queue already has >50 frames (>1s),
-      // flush all old frames. The new segment's frames are more "current".
-      if (frameQueue.length > 50) {
-        var flushed = 0;
-        while (frameQueue.length > 0) {
-          var f = frameQueue.shift();
-          if (f && f.close) f.close();
-          flushed++;
-        }
-        dbg('Flush', flushed + ' old frames', 'warn');
-      }
 
       for (var m = 0; m < moofs.length; m++) {
         var moof = moofs[m];
@@ -242,10 +230,13 @@
           if (i === 0 && !isKey && sample.size > 50000) isKey = true;
           if (waitingForKeyframe && !isKey) continue;
 
+          // timestamp in microseconds for WebCodecs
+          var frameTsUs = ts * (1000000 / 90000);
+
           try {
             videoDecoder.decode(new EncodedVideoChunk({
               type: isKey ? 'key' : 'delta',
-              timestamp: ts * (1000000 / 90000),
+              timestamp: frameTsUs,
               duration: (sample.duration || 3000) * (1000000 / 90000),
               data: sampleData
             }));
@@ -271,9 +262,12 @@
       dbg('Segments', segmentCount, 'ok');
     }
 
-    // ---- Frame Queue & Paced Rendering ----
+    // ---- Frame Queue with timestamp-based sync to audio ----
+    // Each frame has a .timestamp (microseconds) from WebCodecs.
+    // We convert to seconds and compare with audioVideo.currentTime.
+    // The offset between these two timelines is learned from the first frame.
     var frameQueue = [];
-    var MAX_QUEUE = 150;
+    var MAX_QUEUE = 500;
     var renderLoopRunning = false;
     var canvasChecked = false;
     var frameIntervalMs = 40;
@@ -282,9 +276,16 @@
       decodedTotal++;
       if (!gotFirstFrame) {
         gotFirstFrame = true;
-        dbg('FirstFrame', frame.displayWidth + 'x' + frame.displayHeight, 'ok');
         renderCanvas.width = frame.displayWidth;
         renderCanvas.height = frame.displayHeight;
+        dbg('FirstFrame', frame.displayWidth + 'x' + frame.displayHeight, 'ok');
+
+        // Learn the time offset: frame.timestamp is in microseconds (90kHz based),
+        // audio.currentTime is in seconds. The offset lets us convert between them.
+        var frameTimeSec = frame.timestamp / 1000000;
+        timeOffset = frameTimeSec - audioVideo.currentTime;
+        timeOffsetSet = true;
+        dbg('TimeOffset', timeOffset.toFixed(3) + 's (frame=' + frameTimeSec.toFixed(3) + ' audio=' + audioVideo.currentTime.toFixed(3) + ')', 'ok');
       }
 
       if (frameQueue.length >= MAX_QUEUE) {
@@ -299,7 +300,12 @@
     }
 
     function scheduleRender() {
-      setTimeout(renderLoop, frameIntervalMs);
+      setTimeout(renderLoop, 8); // Run at ~120hz, we pick the right frame by timestamp
+    }
+
+    // Convert audio.currentTime to frame timestamp space (microseconds)
+    function audioTimeToFrameTs(audioTime) {
+      return (audioTime + timeOffset) * 1000000;
     }
 
     function renderLoop() {
@@ -308,22 +314,48 @@
         return;
       }
 
-      var frameToRender = frameQueue.shift();
+      if (!timeOffsetSet) {
+        // Can't sync yet, just wait
+        scheduleRender();
+        return;
+      }
 
-      if (frameToRender) {
-        if (renderCanvas.width !== frameToRender.displayWidth ||
-            renderCanvas.height !== frameToRender.displayHeight) {
-          renderCanvas.width = frameToRender.displayWidth;
-          renderCanvas.height = frameToRender.displayHeight;
+      var audioNow = audioVideo.currentTime;
+      var targetTs = audioTimeToFrameTs(audioNow);
+
+      // Find the best frame to show: the latest frame whose timestamp <= targetTs
+      // Drop all frames that are older than targetTs (they're late, we missed them)
+      var bestFrame = null;
+      while (frameQueue.length > 0) {
+        var front = frameQueue[0];
+        if (front.timestamp <= targetTs) {
+          // This frame should have been shown by now
+          if (bestFrame) {
+            bestFrame.close(); // close the previous "best" - it's even older
+            droppedFrames++;
+          }
+          bestFrame = frameQueue.shift();
+        } else {
+          // This frame is in the future - stop
+          break;
+        }
+      }
+
+      // Render the best frame (most recent one that's not in the future)
+      if (bestFrame) {
+        if (renderCanvas.width !== bestFrame.displayWidth ||
+            renderCanvas.height !== bestFrame.displayHeight) {
+          renderCanvas.width = bestFrame.displayWidth;
+          renderCanvas.height = bestFrame.displayHeight;
         }
 
         if (canvasMode) {
           try {
-            ctx.drawImage(frameToRender, 0, 0);
+            ctx.drawImage(bestFrame, 0, 0);
             if (!canvasChecked) {
               var px = ctx.getImageData(
-                Math.floor(frameToRender.displayWidth / 2),
-                Math.floor(frameToRender.displayHeight / 2), 1, 1
+                Math.floor(bestFrame.displayWidth / 2),
+                Math.floor(bestFrame.displayHeight / 2), 1, 1
               ).data;
               if ((px[0] + px[1] + px[2]) > 10) {
                 canvasChecked = true;
@@ -341,7 +373,7 @@
         }
 
         if (!canvasMode) {
-          try { ctx.drawImage(frameToRender, 0, 0); } catch(e) {}
+          try { ctx.drawImage(bestFrame, 0, 0); } catch(e) {}
           renderCanvas.toBlob(function(blob) {
             if (blob && blob.size > 500) {
               if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
@@ -354,10 +386,14 @@
           }, 'image/jpeg', 0.85);
         }
 
-        frameToRender.close();
+        bestFrame.close();
       }
 
-      dbg('Q', frameQueue.length + ' int=' + frameIntervalMs + 'ms', frameQueue.length > 60 ? 'warn' : 'ok');
+      // Debug: show sync info
+      var frontTs = frameQueue.length > 0 ? (frameQueue[0].timestamp / 1000000 - timeOffset).toFixed(2) : '?';
+      dbg('Sync', 'A=' + audioNow.toFixed(2) + ' nextF=' + frontTs + ' Q=' + frameQueue.length + ' drop=' + droppedFrames,
+          frameQueue.length > 200 ? 'warn' : 'ok');
+
       scheduleRender();
     }
 
@@ -399,14 +435,7 @@
       dbg('WebCodecs', hasWC ? 'YES' : 'NO', hasWC ? 'ok' : 'fail');
       if (!Hls.isSupported()) { dbg('HLS', 'Not supported', 'fail'); return; }
 
-      var hls = new Hls({
-        enableWorker: false,
-        lowLatencyMode: true,
-        maxBufferLength: 4,
-        maxMaxBufferLength: 8,
-        maxBufferSize: 2 * 1024 * 1024,
-        backBufferLength: 0
-      });
+      var hls = new Hls({ enableWorker: false, lowLatencyMode: true });
       hls.loadSource(url);
       hls.attachMedia(audioVideo);
 
@@ -478,6 +507,7 @@
       decodedTotal = 0; frameCount = 0; errorCount = 0; canvasMode = true; debugInfo = {};
       gotFirstFrame = false; waitingForKeyframe = true; decoderReady = false;
       avcCData = null; segmentCount = 0; sampleTimestamp = 0;
+      timeOffset = 0; timeOffsetSet = false; droppedFrames = 0;
       renderCanvas.style.display = 'block'; displayImg.style.display = 'none';
     }
 
