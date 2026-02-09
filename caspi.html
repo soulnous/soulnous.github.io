@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>OpenMyCarIL - Tesla TV Player v5.9.1</title>
+  <title>OpenMyCarIL - Tesla TV Player v6.0</title>
   <link rel="icon" href="https://images.shulcloud.com/1105/uploads/OTT/vbstv-square-icon-512.jpg" type="image/x-icon">
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <style>
@@ -71,7 +71,7 @@
     setInterval(function() {
       dbg('FPS', frameCount, frameCount > 0 ? 'ok' : 'warn');
       dbg('Audio', (audioVideo.currentTime||0).toFixed(1)+'s / '+(audioVideo.paused?'PAUSED':'playing'), audioVideo.paused?'warn':'ok');
-      var html = '<b>=== TESLA v5.9.1 ===</b><br>';
+      var html = '<b>=== TESLA v6.0 ===</b><br>';
       for (var k in debugInfo) html += k+': '+debugInfo[k]+'<br>';
       debugPanel.innerHTML = html;
       frameCount = 0;
@@ -272,6 +272,8 @@
     var canvasChecked = false;
     var frameIntervalMs = 40;
 
+    var lastOffsetUpdateSeg = -1; // which segment# we last updated offset on
+
     function onFrame(frame) {
       decodedTotal++;
       if (!gotFirstFrame) {
@@ -279,13 +281,23 @@
         renderCanvas.width = frame.displayWidth;
         renderCanvas.height = frame.displayHeight;
         dbg('FirstFrame', frame.displayWidth + 'x' + frame.displayHeight, 'ok');
+      }
 
-        // Learn the time offset: frame.timestamp is in microseconds (90kHz based),
-        // audio.currentTime is in seconds. The offset lets us convert between them.
+      // Re-calibrate timeOffset on every NEW segment's first frame.
+      // This keeps sync accurate even if timestamp base changes between segments.
+      if (segmentCount > lastOffsetUpdateSeg && !audioVideo.paused && audioVideo.currentTime > 0.5) {
+        lastOffsetUpdateSeg = segmentCount;
         var frameTimeSec = frame.timestamp / 1000000;
-        timeOffset = frameTimeSec - audioVideo.currentTime;
-        timeOffsetSet = true;
-        dbg('TimeOffset', timeOffset.toFixed(3) + 's (frame=' + frameTimeSec.toFixed(3) + ' audio=' + audioVideo.currentTime.toFixed(3) + ')', 'ok');
+        var newOffset = frameTimeSec - audioVideo.currentTime;
+        // Smooth it: blend 70% new + 30% old to avoid jumps (unless first time)
+        if (!timeOffsetSet) {
+          timeOffset = newOffset;
+          timeOffsetSet = true;
+          dbg('TimeOffset', 'init=' + newOffset.toFixed(3), 'ok');
+        } else {
+          timeOffset = newOffset * 0.7 + timeOffset * 0.3;
+        }
+        dbg('TimeOffset', timeOffset.toFixed(3) + ' (seg ' + segmentCount + ')', 'ok');
       }
 
       if (frameQueue.length >= MAX_QUEUE) {
@@ -343,11 +355,11 @@
         }
       }
 
-      // ANTI-FREEZE: if we found no frame for 500ms (62 ticks at 8ms) but queue has frames,
+      // ANTI-FREEZE: if we found no frame for 150ms (19 ticks at 8ms) but queue has frames,
       // the timeOffset has drifted. Re-calibrate by showing the oldest frame and adjusting offset.
       if (!bestFrame && frameQueue.length > 0) {
         noFrameTicks++;
-        if (noFrameTicks > 62) {
+        if (noFrameTicks > 19) {
           // Re-calibrate: assume the oldest frame in queue should play NOW
           bestFrame = frameQueue.shift();
           var newOffset = bestFrame.timestamp / 1000000 - audioNow;
@@ -525,7 +537,7 @@
       decodedTotal = 0; frameCount = 0; errorCount = 0; canvasMode = true; debugInfo = {};
       gotFirstFrame = false; waitingForKeyframe = true; decoderReady = false;
       avcCData = null; segmentCount = 0; sampleTimestamp = 0;
-      timeOffset = 0; timeOffsetSet = false; droppedFrames = 0;
+      timeOffset = 0; timeOffsetSet = false; droppedFrames = 0; lastOffsetUpdateSeg = -1;
       renderCanvas.style.display = 'block'; displayImg.style.display = 'none';
     }
 
