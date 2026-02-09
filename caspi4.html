@@ -69,7 +69,7 @@
         dbg('DecQueue', videoDecoder.decodeQueueSize, 'info');
         dbg('DecState', videoDecoder.state, videoDecoder.state==='configured'?'ok':'warn');
       }
-      var html = '<b>=== TESLA v4.3D WebCodecs ===</b><br>';
+      var html = '<b>=== TESLA v4.4 WebCodecs ===</b><br>';
       for (var k in debugInfo) html += k+': '+debugInfo[k]+'<br>';
       debugPanel.innerHTML = html;
       frameCount = 0;
@@ -383,26 +383,30 @@
           var sampleData = data.slice(samplePos, samplePos + sSize);
           samplePos += sSize;
 
-          // Re-evaluate keyframe with actual flags
-          var dependsOn = (sFlags >> 24) & 0x3;
-          var isNonSync = (sFlags >> 16) & 0x1;
-          var isKey = (dependsOn !== 2) && (isNonSync === 0);
-
-          // Double-check: look at NAL unit type in the sample data
-          // fMP4 uses 4-byte length prefix (AVC format)
-          if (sampleData.length > 4) {
-            var nalType = sampleData[4] & 0x1F;
-            if (nalType === 5) isKey = true; // IDR
-            if (nalType === 7) isKey = true; // SPS
+          // Scan ALL NAL units in the sample to find actual video NAL type
+          // fMP4 uses 4-byte length prefix (AVC format): [len4][NAL][len4][NAL]...
+          // First NAL is often AUD (type 9), actual IDR/slice comes after
+          var isKey = false;
+          var nalPos = 0;
+          var nalTypes = [];
+          while (nalPos + 4 < sSize) {
+            var nalLen = (sampleData[nalPos]<<24)|(sampleData[nalPos+1]<<16)|
+                         (sampleData[nalPos+2]<<8)|sampleData[nalPos+3];
+            if (nalLen <= 0 || nalPos + 4 + nalLen > sSize) break;
+            var nt = sampleData[nalPos + 4] & 0x1F;
+            nalTypes.push(nt);
+            if (nt === 5) isKey = true; // IDR slice
+            if (nt === 7) isKey = true; // SPS
+            nalPos += 4 + nalLen;
           }
+          // Also: first sample of an HLS segment is almost always a keyframe
+          // If flags say non-sync but we found IDR NAL, trust the NAL
+          // If no IDR found but it's sample 0 and has large size, likely key
+          if (i === 0 && !isKey && sSize > 50000) isKey = true;
 
           // Debug first sample's NAL data
           if (i === 0 && segmentCount === 0) {
-            var nalBytes = [];
-            for (var nb = 0; nb < Math.min(8, sampleData.length); nb++) {
-              nalBytes.push(('0'+sampleData[nb].toString(16)).slice(-2));
-            }
-            dbg('NAL0', nalBytes.join(' ') + ' type='+(sampleData.length>4?(sampleData[4]&0x1F):'?')+' key='+isKey, 'info');
+            dbg('NAL0', 'types=[' + nalTypes.join(',') + '] key=' + isKey + ' sz=' + sSize, isKey?'ok':'warn');
           }
 
           // If we're waiting for a keyframe, skip non-key frames
