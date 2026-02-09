@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>OpenMyCarIL - Tesla TV Player v4.3</title>
+  <title>OpenMyCarIL - Tesla TV Player v5.9.1</title>
   <link rel="icon" href="https://images.shulcloud.com/1105/uploads/OTT/vbstv-square-icon-512.jpg" type="image/x-icon">
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <style>
@@ -19,7 +19,7 @@
     #videoContainer iframe { width:95%; height:90%; }
     #debugPanel { position:fixed; top:5px; right:5px; background:rgba(0,0,0,0.85); color:#0f0;
       padding:8px 12px; font-size:11px; font-family:monospace; border-radius:4px; z-index:9999;
-      line-height:1.5; min-width:320px; text-align:left; max-height:60vh; overflow-y:auto; }
+      line-height:1.5; min-width:320px; text-align:left; max-height:50vh; overflow-y:auto; }
     .dok { color:#0f0; } .dfail { color:#f00; } .dwarn { color:#ff0; } .dinfo { color:#0ff; }
   </style>
 </head>
@@ -53,6 +53,12 @@
     var avcCData = null;
     var segmentCount = 0;
     var sampleTimestamp = 0;
+    var droppedFrames = 0;
+
+    // Time offset: maps frame timestamps to audio.currentTime
+    // We discover this offset from the first frame: offset = firstFrameTs - audio.currentTime at that moment
+    var timeOffset = 0;
+    var timeOffsetSet = false;
 
     var audioVideo = document.getElementById('audioVideo');
     var renderCanvas = document.getElementById('renderCanvas');
@@ -65,11 +71,7 @@
     setInterval(function() {
       dbg('FPS', frameCount, frameCount > 0 ? 'ok' : 'warn');
       dbg('Audio', (audioVideo.currentTime||0).toFixed(1)+'s / '+(audioVideo.paused?'PAUSED':'playing'), audioVideo.paused?'warn':'ok');
-      if (videoDecoder) {
-        dbg('DecQueue', videoDecoder.decodeQueueSize, 'info');
-        dbg('DecState', videoDecoder.state, videoDecoder.state==='configured'?'ok':'warn');
-      }
-      var html = '<b>=== TESLA v4.3 WebCodecs ===</b><br>';
+      var html = '<b>=== TESLA v5.9.1 ===</b><br>';
       for (var k in debugInfo) html += k+': '+debugInfo[k]+'<br>';
       debugPanel.innerHTML = html;
       frameCount = 0;
@@ -80,7 +82,6 @@
     function readU16(d, o) { return (d[o]<<8)|d[o+1]; }
     function boxType(d, o) { return String.fromCharCode(d[o],d[o+1],d[o+2],d[o+3]); }
 
-    // Find all top-level boxes of given type within a range
     function findBoxes(data, start, end, type) {
       var results = [];
       var pos = start;
@@ -88,8 +89,7 @@
         var size = readU32(data, pos);
         if (size < 8) break;
         if (pos + size > end) break;
-        var t = boxType(data, pos + 4);
-        if (t === type) {
+        if (boxType(data, pos + 4) === type) {
           results.push({ offset: pos, size: size, headerSize: 8 });
         }
         pos += size;
@@ -97,216 +97,119 @@
       return results;
     }
 
-    // Find first box of given type, searching children of container boxes
     function findBoxPath(data, start, end, path) {
       var types = path.split('.');
       var searchStart = start;
       var searchEnd = end;
-
       for (var i = 0; i < types.length; i++) {
         var found = findBoxes(data, searchStart, searchEnd, types[i]);
         if (found.length === 0) return null;
         var box = found[0];
-        // For next level, search inside this box (skip header)
         searchStart = box.offset + box.headerSize;
         searchEnd = box.offset + box.size;
       }
-      return { offset: searchStart - 8, size: searchEnd - searchStart + 8,
-               dataStart: searchStart, dataEnd: searchEnd };
+      return { dataStart: searchStart, dataEnd: searchEnd };
     }
 
-    // Extract avcC data from init segment (ftyp+moov)
     function extractAvcC(initData) {
-      // Navigate: moov > trak > mdia > minf > stbl > stsd
       var stsd = findBoxPath(initData, 0, initData.byteLength, 'moov.trak.mdia.minf.stbl.stsd');
-      if (!stsd) {
-        dbg('Parse', 'No stsd found', 'fail');
-        return null;
-      }
-
-      // stsd has: version(4) + entry_count(4) then entries
-      // Each entry starts with its own box header
-      var entryStart = stsd.dataStart + 8; // skip version+flags(4) + entry_count(4)
+      if (!stsd) { dbg('Parse', 'No stsd', 'fail'); return null; }
+      var entryStart = stsd.dataStart + 8;
       var entryEnd = stsd.dataEnd;
-
-      // Find avc1 or avc3 entry
       var avc1 = findBoxes(initData, entryStart, entryEnd, 'avc1');
       if (avc1.length === 0) avc1 = findBoxes(initData, entryStart, entryEnd, 'avc3');
-      if (avc1.length === 0) {
-        dbg('Parse', 'No avc1/avc3 found', 'fail');
-        return null;
-      }
+      if (avc1.length === 0) { dbg('Parse', 'No avc1/avc3', 'fail'); return null; }
 
       var entry = avc1[0];
-      // avc1 Visual Sample Entry:
-      // box header (8) + reserved(6) + data_ref_index(2) + pre_defined(2) + reserved(2) +
-      // pre_defined(12) + width(2) + height(2) + horizresolution(4) + vertresolution(4) +
-      // reserved(4) + frame_count(2) + compressorname(32) + depth(2) + pre_defined(2)
-      // = 78 bytes after box header, then child boxes (avcC, etc.)
-      var innerStart = entry.offset + entry.headerSize + 78; // 8 + 78 = 86 from box start
       var innerEnd = entry.offset + entry.size;
-
-      // Extract width/height from avc1 box
       var w = readU16(initData, entry.offset + entry.headerSize + 24);
       var h = readU16(initData, entry.offset + entry.headerSize + 26);
-      if (w > 0 && h > 0) {
-        dbg('Resolution', w + 'x' + h, 'ok');
-      }
+      if (w > 0 && h > 0) dbg('Resolution', w + 'x' + h, 'ok');
 
-      // Find avcC box inside avc1
+      var innerStart = entry.offset + entry.headerSize + 78;
       var avcCBoxes = findBoxes(initData, innerStart, innerEnd, 'avcC');
-
-      // Fallback: brute-force scan for 'avcC' box anywhere inside avc1 entry
       if (avcCBoxes.length === 0) {
-        dbg('Parse', 'avcC not at offset 86, scanning...', 'warn');
         for (var scan = entry.offset + entry.headerSize; scan < innerEnd - 8; scan++) {
           if (initData[scan+4]===0x61 && initData[scan+5]===0x76 &&
-              initData[scan+6]===0x63 && initData[scan+7]===0x43) { // 'avcC'
+              initData[scan+6]===0x63 && initData[scan+7]===0x43) {
             var bSize = readU32(initData, scan);
             if (bSize >= 8 && scan + bSize <= innerEnd) {
               avcCBoxes.push({ offset: scan, size: bSize, headerSize: 8 });
-              dbg('Parse', 'avcC found at scan offset ' + (scan - entry.offset), 'ok');
               break;
             }
           }
         }
       }
-
-      if (avcCBoxes.length === 0) {
-        dbg('Parse', 'No avcC box found anywhere in avc1!', 'fail');
-        return null;
-      }
+      if (avcCBoxes.length === 0) { dbg('Parse', 'No avcC!', 'fail'); return null; }
 
       var avcCBox = avcCBoxes[0];
-      // Return the avcC box DATA (without the 8-byte box header)
       var avcCContent = initData.slice(avcCBox.offset + avcCBox.headerSize, avcCBox.offset + avcCBox.size);
-
-      // Extract codec string from avcC
-      // avcC: configurationVersion(1), profile(1), constraint(1), level(1)
       if (avcCContent.length >= 4) {
-        var profile = avcCContent[1];
-        var constraint = avcCContent[2];
-        var level = avcCContent[3];
         var hex = function(v) { return ('0'+v.toString(16)).slice(-2).toUpperCase(); };
-        codecString = 'avc1.' + hex(profile) + hex(constraint) + hex(level);
-        dbg('Codec', codecString + ' (from avcC)', 'ok');
+        codecString = 'avc1.' + hex(avcCContent[1]) + hex(avcCContent[2]) + hex(avcCContent[3]);
+        dbg('Codec', codecString, 'ok');
       }
-
-      dbg('avcC', avcCContent.byteLength + ' bytes extracted', 'ok');
+      dbg('avcC', avcCContent.byteLength + 'b', 'ok');
       return avcCContent;
     }
 
-    // Parse trun box to get sample sizes, flags, durations
-    function parseTrunBox(data, boxOffset, boxSize) {
-      var pos = boxOffset + 8; // skip box header
+    function parseTrunBox(data, boxOffset) {
+      var pos = boxOffset + 8;
       var version = data[pos]; pos++;
       var flags = (data[pos]<<16)|(data[pos+1]<<8)|data[pos+2]; pos += 3;
       var sampleCount = readU32(data, pos); pos += 4;
-
-      var hasDataOffset = !!(flags & 0x1);
-      var hasFirstSampleFlags = !!(flags & 0x4);
-      var hasDuration = !!(flags & 0x100);
-      var hasSize = !!(flags & 0x200);
-      var hasFlags = !!(flags & 0x400);
-      var hasCTO = !!(flags & 0x800);
-
       var dataOffsetVal = 0;
-      if (hasDataOffset) { dataOffsetVal = readU32(data, pos); pos += 4; }
-
+      if (!!(flags & 0x1)) { dataOffsetVal = readU32(data, pos); pos += 4; }
       var firstSampleFlags = 0;
-      if (hasFirstSampleFlags) { firstSampleFlags = readU32(data, pos); pos += 4; }
+      if (!!(flags & 0x4)) { firstSampleFlags = readU32(data, pos); pos += 4; }
 
       var samples = [];
       for (var i = 0; i < sampleCount; i++) {
-        var s = { duration: 0, size: 0, flags: 0, cto: 0 };
-        if (hasDuration) { s.duration = readU32(data, pos); pos += 4; }
-        if (hasSize) { s.size = readU32(data, pos); pos += 4; }
-        if (hasFlags) {
-          s.flags = readU32(data, pos); pos += 4;
-        } else if (i === 0 && hasFirstSampleFlags) {
-          s.flags = firstSampleFlags;
-        }
-        if (hasCTO) {
-          s.cto = readU32(data, pos); pos += 4;
-          if (version === 1 && (s.cto & 0x80000000)) {
-            s.cto = s.cto - 0x100000000; // signed
-          }
-        }
-        // Keyframe: sample_depends_on == 2 means NOT a keyframe
-        // sample_is_non_sync_sample flag (0x10000) set = NOT keyframe
-        // If flags is 0, typically means keyframe
-        var dependsOn = (s.flags >> 24) & 0x3;
-        var isNonSync = (s.flags >> 16) & 0x1;
-        s.isKey = (dependsOn !== 2) && (isNonSync === 0);
+        var s = { duration: 0, size: 0, flags: 0 };
+        if (!!(flags & 0x100)) { s.duration = readU32(data, pos); pos += 4; }
+        if (!!(flags & 0x200)) { s.size = readU32(data, pos); pos += 4; }
+        if (!!(flags & 0x400)) { s.flags = readU32(data, pos); pos += 4; }
+        else if (i === 0 && !!(flags & 0x4)) { s.flags = firstSampleFlags; }
+        if (!!(flags & 0x800)) { pos += 4; }
         samples.push(s);
       }
-
       return { dataOffset: dataOffsetVal, samples: samples };
     }
 
-    // Parse tfdt for base decode time
     function parseTfdt(data, boxOffset) {
-      var pos = boxOffset + 8; // skip box header
+      var pos = boxOffset + 8;
       var version = data[pos];
-      if (version === 0) {
-        return readU32(data, pos + 4);
-      } else {
-        // 64-bit, just use lower 32 bits for simplicity (enough for our timestamps)
-        return readU32(data, pos + 8);
-      }
+      return version === 0 ? readU32(data, pos + 4) : readU32(data, pos + 8);
     }
 
-    // Parse a media segment (moof+mdat) and feed samples to VideoDecoder
+    // Process media segment - feed ALL samples to decoder immediately
     function processMediaSegment(data) {
       if (!videoDecoder || videoDecoder.state !== 'configured') return;
 
       var moofs = findBoxes(data, 0, data.byteLength, 'moof');
       var mdats = findBoxes(data, 0, data.byteLength, 'mdat');
-
-      if (moofs.length === 0 || mdats.length === 0) {
-        dbg('Segment', 'No moof/mdat', 'warn');
-        return;
-      }
+      if (moofs.length === 0 || mdats.length === 0) return;
 
       for (var m = 0; m < moofs.length; m++) {
         var moof = moofs[m];
         var mdat = m < mdats.length ? mdats[m] : mdats[mdats.length - 1];
-        var moofStart = moof.offset;
-        var moofEnd = moof.offset + moof.size;
 
-        // Find traf > trun
-        var trafs = findBoxes(data, moofStart + 8, moofEnd, 'traf');
+        var trafs = findBoxes(data, moof.offset + 8, moof.offset + moof.size, 'traf');
         if (trafs.length === 0) continue;
+        var trafStart = trafs[0].offset + 8;
+        var trafEnd = trafs[0].offset + trafs[0].size;
 
-        var traf = trafs[0];
-        var trafStart = traf.offset + 8;
-        var trafEnd = traf.offset + traf.size;
-
-        // Find tfdt for base decode time
         var tfdts = findBoxes(data, trafStart, trafEnd, 'tfdt');
         var baseTime = sampleTimestamp;
-        if (tfdts.length > 0) {
-          baseTime = parseTfdt(data, tfdts[0].offset);
-        }
+        if (tfdts.length > 0) baseTime = parseTfdt(data, tfdts[0].offset);
 
-        // Find trun
         var truns = findBoxes(data, trafStart, trafEnd, 'trun');
         if (truns.length === 0) continue;
 
-        var trun = parseTrunBox(data, truns[0].offset, truns[0].size);
-
-        // Calculate sample data start position
-        var samplePos;
-        if (trun.dataOffset) {
-          // dataOffset is relative to moof start
-          samplePos = moofStart + trun.dataOffset;
-        } else {
-          // Default: samples start at mdat data area
-          samplePos = mdat.offset + mdat.headerSize;
-        }
-
+        var trun = parseTrunBox(data, truns[0].offset);
+        var samplePos = trun.dataOffset ? moof.offset + trun.dataOffset : mdat.offset + mdat.headerSize;
         var ts = baseTime;
-        var samplesDecoded = 0;
+        var decoded = 0;
 
         for (var i = 0; i < trun.samples.length; i++) {
           var sample = trun.samples[i];
@@ -315,140 +218,222 @@
           var sampleData = data.slice(samplePos, samplePos + sample.size);
           samplePos += sample.size;
 
-          var isKey = sample.isKey;
-
-          // Double-check: look at NAL unit type in the sample data
-          // fMP4 uses 4-byte length prefix (AVC format)
-          if (sampleData.length > 4) {
-            var nalType = sampleData[4] & 0x1F;
-            if (nalType === 5) isKey = true; // IDR
-            if (nalType === 7) isKey = true; // SPS (shouldn't be here, but just in case)
+          var isKey = false;
+          var nalPos = 0;
+          while (nalPos + 4 < sample.size) {
+            var nalLen = readU32(sampleData, nalPos);
+            if (nalLen <= 0 || nalPos + 4 + nalLen > sample.size) break;
+            var nt = sampleData[nalPos + 4] & 0x1F;
+            if (nt === 5 || nt === 7) isKey = true;
+            nalPos += 4 + nalLen;
           }
+          if (i === 0 && !isKey && sample.size > 50000) isKey = true;
+          if (waitingForKeyframe && !isKey) continue;
 
-          // If we're waiting for a keyframe, skip non-key frames
-          if (waitingForKeyframe && !isKey) {
-            continue;
-          }
-
-          if (videoDecoder.decodeQueueSize > 10) {
-            // Queue too full, skip this sample
-            continue;
-          }
+          // timestamp in microseconds for WebCodecs
+          var frameTsUs = ts * (1000000 / 90000);
 
           try {
-            var chunk = new EncodedVideoChunk({
+            videoDecoder.decode(new EncodedVideoChunk({
               type: isKey ? 'key' : 'delta',
-              timestamp: ts * (1000000 / 90000), // 90kHz timescale to microseconds
+              timestamp: frameTsUs,
               duration: (sample.duration || 3000) * (1000000 / 90000),
               data: sampleData
-            });
-            videoDecoder.decode(chunk);
-            samplesDecoded++;
-
+            }));
+            decoded++;
             if (isKey && waitingForKeyframe) {
               waitingForKeyframe = false;
-              dbg('Keyframe', 'FOUND! Decoding...', 'ok');
+              dbg('Keyframe', 'FOUND', 'ok');
             }
           } catch(e) {
             errorCount++;
-            dbg('DecErr', e.message + ' (#' + errorCount + ')', 'fail');
+            dbg('DecErr', e.message, 'fail');
           }
-
           ts += sample.duration || 3000;
         }
 
         sampleTimestamp = ts;
-        dbg('Samples', samplesDecoded + '/' + trun.samples.length + ' decoded', samplesDecoded>0?'ok':'warn');
+        if (trun.samples.length > 0 && trun.samples[0].duration > 0) {
+          frameIntervalMs = Math.round(trun.samples[0].duration / 90);
+        }
+        dbg('Samples', decoded + '/' + trun.samples.length, decoded>0?'ok':'warn');
       }
       segmentCount++;
       dbg('Segments', segmentCount, 'ok');
     }
 
-    // ---- WebCodecs Decoder ----
+    // ---- Frame Queue with timestamp-based sync to audio ----
+    // Each frame has a .timestamp (microseconds) from WebCodecs.
+    // We convert to seconds and compare with audioVideo.currentTime.
+    // The offset between these two timelines is learned from the first frame.
+    var frameQueue = [];
+    var MAX_QUEUE = 500;
+    var renderLoopRunning = false;
+    var canvasChecked = false;
+    var frameIntervalMs = 40;
+
     function onFrame(frame) {
       decodedTotal++;
-
       if (!gotFirstFrame) {
         gotFirstFrame = true;
-        dbg('FirstFrame', frame.displayWidth + 'x' + frame.displayHeight, 'ok');
-      }
-
-      if (renderCanvas.width !== frame.displayWidth || renderCanvas.height !== frame.displayHeight) {
         renderCanvas.width = frame.displayWidth;
         renderCanvas.height = frame.displayHeight;
+        dbg('FirstFrame', frame.displayWidth + 'x' + frame.displayHeight, 'ok');
+
+        // Learn the time offset: frame.timestamp is in microseconds (90kHz based),
+        // audio.currentTime is in seconds. The offset lets us convert between them.
+        var frameTimeSec = frame.timestamp / 1000000;
+        timeOffset = frameTimeSec - audioVideo.currentTime;
+        timeOffsetSet = true;
+        dbg('TimeOffset', timeOffset.toFixed(3) + 's (frame=' + frameTimeSec.toFixed(3) + ' audio=' + audioVideo.currentTime.toFixed(3) + ')', 'ok');
       }
 
-      if (canvasMode) {
-        try {
-          ctx.drawImage(frame, 0, 0);
-          // Check if canvas drawImage actually worked (Tesla may block it)
-          var px = ctx.getImageData(
-            Math.floor(frame.displayWidth / 2),
-            Math.floor(frame.displayHeight / 2), 1, 1
-          ).data;
-          if ((px[0] + px[1] + px[2]) > 10) {
-            dbg('Render', 'CANVAS OK', 'ok');
-            frameCount++;
-          } else {
-            // Canvas shows black - switch to img mode
-            dbg('Render', 'CANVAS BLACK -> IMG fallback', 'warn');
-            canvasMode = false;
+      if (frameQueue.length >= MAX_QUEUE) {
+        frameQueue.shift().close();
+      }
+      frameQueue.push(frame);
+
+      if (!renderLoopRunning) {
+        renderLoopRunning = true;
+        scheduleRender();
+      }
+    }
+
+    function scheduleRender() {
+      setTimeout(renderLoop, 8); // Run at ~120hz, we pick the right frame by timestamp
+    }
+
+    // Convert audio.currentTime to frame timestamp space (microseconds)
+    function audioTimeToFrameTs(audioTime) {
+      return (audioTime + timeOffset) * 1000000;
+    }
+
+    var noFrameTicks = 0; // counts consecutive ticks with no frame to show
+
+    function renderLoop() {
+      if (frameQueue.length === 0) {
+        renderLoopRunning = false;
+        return;
+      }
+
+      if (!timeOffsetSet) {
+        // Can't sync yet, just wait
+        scheduleRender();
+        return;
+      }
+
+      var audioNow = audioVideo.currentTime;
+      var targetTs = audioTimeToFrameTs(audioNow);
+
+      // Find the best frame to show: the latest frame whose timestamp <= targetTs
+      // Drop all frames that are older than targetTs (they're late, we missed them)
+      var bestFrame = null;
+      while (frameQueue.length > 0) {
+        var front = frameQueue[0];
+        if (front.timestamp <= targetTs) {
+          // This frame should have been shown by now
+          if (bestFrame) {
+            bestFrame.close(); // close the previous "best" - it's even older
+            droppedFrames++;
           }
-        } catch(e) {
-          dbg('Render', 'CANVAS ERR -> IMG: ' + e.message, 'fail');
-          canvasMode = false;
+          bestFrame = frameQueue.shift();
+        } else {
+          // This frame is in the future - stop
+          break;
         }
       }
 
-      if (!canvasMode) {
-        // Img fallback: draw to canvas then blob -> img
-        try { ctx.drawImage(frame, 0, 0); } catch(e) {}
-        renderCanvas.toBlob(function(blob) {
-          if (blob && blob.size > 500) {
-            if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
-            currentBlobUrl = URL.createObjectURL(blob);
-            displayImg.src = currentBlobUrl;
-            displayImg.style.display = 'block';
-            renderCanvas.style.display = 'none';
-            frameCount++;
-            dbg('Render', 'IMG OK (' + blob.size + 'b)', 'ok');
-          }
-        }, 'image/jpeg', 0.85);
+      // ANTI-FREEZE: if we found no frame for 500ms (62 ticks at 8ms) but queue has frames,
+      // the timeOffset has drifted. Re-calibrate by showing the oldest frame and adjusting offset.
+      if (!bestFrame && frameQueue.length > 0) {
+        noFrameTicks++;
+        if (noFrameTicks > 62) {
+          // Re-calibrate: assume the oldest frame in queue should play NOW
+          bestFrame = frameQueue.shift();
+          var newOffset = bestFrame.timestamp / 1000000 - audioNow;
+          dbg('Recalib', 'old=' + timeOffset.toFixed(2) + ' new=' + newOffset.toFixed(2), 'warn');
+          timeOffset = newOffset;
+          noFrameTicks = 0;
+        }
+      } else if (bestFrame) {
+        noFrameTicks = 0;
       }
 
-      frame.close();
-      dbg('Decoded', decodedTotal, 'ok');
+      // Render the best frame (most recent one that's not in the future)
+      if (bestFrame) {
+        if (renderCanvas.width !== bestFrame.displayWidth ||
+            renderCanvas.height !== bestFrame.displayHeight) {
+          renderCanvas.width = bestFrame.displayWidth;
+          renderCanvas.height = bestFrame.displayHeight;
+        }
+
+        if (canvasMode) {
+          try {
+            ctx.drawImage(bestFrame, 0, 0);
+            if (!canvasChecked) {
+              var px = ctx.getImageData(
+                Math.floor(bestFrame.displayWidth / 2),
+                Math.floor(bestFrame.displayHeight / 2), 1, 1
+              ).data;
+              if ((px[0] + px[1] + px[2]) > 10) {
+                canvasChecked = true;
+                dbg('Render', 'CANVAS OK', 'ok');
+              } else if (decodedTotal > 5) {
+                canvasMode = false;
+                dbg('Render', 'CANVAS BLACK -> IMG', 'warn');
+              }
+            }
+            frameCount++;
+          } catch(e) {
+            canvasMode = false;
+            dbg('Render', 'ERR -> IMG: ' + e.message, 'fail');
+          }
+        }
+
+        if (!canvasMode) {
+          try { ctx.drawImage(bestFrame, 0, 0); } catch(e) {}
+          renderCanvas.toBlob(function(blob) {
+            if (blob && blob.size > 500) {
+              if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+              currentBlobUrl = URL.createObjectURL(blob);
+              displayImg.src = currentBlobUrl;
+              displayImg.style.display = 'block';
+              renderCanvas.style.display = 'none';
+              frameCount++;
+            }
+          }, 'image/jpeg', 0.85);
+        }
+
+        bestFrame.close();
+      }
+
+      // Debug: show sync info
+      var frontTs = frameQueue.length > 0 ? (frameQueue[0].timestamp / 1000000 - timeOffset).toFixed(2) : '?';
+      dbg('Sync', 'A=' + audioNow.toFixed(2) + ' nextF=' + frontTs + ' Q=' + frameQueue.length + ' drop=' + droppedFrames,
+          frameQueue.length > 200 ? 'warn' : 'ok');
+
+      scheduleRender();
     }
 
     function setupDecoder(codec, description) {
       if (videoDecoder) { try { videoDecoder.close(); } catch(e) {} }
-
       if (typeof VideoDecoder === 'undefined') {
         dbg('WebCodecs', 'NOT AVAILABLE', 'fail');
         return false;
       }
-
       videoDecoder = new VideoDecoder({
         output: onFrame,
-        error: function(e) {
-          errorCount++;
-          dbg('Dec error', e.message + ' (#' + errorCount + ')', 'fail');
-        }
+        error: function(e) { errorCount++; dbg('Dec error', e.message, 'fail'); }
       });
-
       var config = {
         codec: codec || 'avc1.42E01E',
         optimizeForLatency: true,
         hardwareAcceleration: 'prefer-hardware'
       };
-
       if (description && description.byteLength > 0) {
         config.description = description;
         dbg('Config', codec + ' + avcC(' + description.byteLength + 'b)', 'ok');
-      } else {
-        dbg('Config', codec + ' (no avcC!)', 'warn');
       }
-
       try {
         videoDecoder.configure(config);
         decoderReady = true;
@@ -460,139 +445,70 @@
       }
     }
 
-    // ---- HLS.js Integration ----
+    // ---- HLS.js ----
     function playStream(url) {
       cleanup();
-      dbg('Status', 'Loading: ' + url.substring(0, 50) + '...', 'info');
-
+      dbg('Status', 'Loading...', 'info');
       var hasWC = typeof VideoDecoder !== 'undefined';
-      dbg('WebCodecs', hasWC ? 'AVAILABLE' : 'NOT AVAILABLE', hasWC ? 'ok' : 'fail');
-
+      dbg('WebCodecs', hasWC ? 'YES' : 'NO', hasWC ? 'ok' : 'fail');
       if (!Hls.isSupported()) { dbg('HLS', 'Not supported', 'fail'); return; }
 
-      var hls = new Hls({
-        enableWorker: false, // Keep in main thread for easier data access
-        lowLatencyMode: true
-      });
-
+      var hls = new Hls({ enableWorker: false, lowLatencyMode: true });
       hls.loadSource(url);
       hls.attachMedia(audioVideo);
 
-      // Step 1: Get codec info from manifest
       hls.on(Hls.Events.MANIFEST_PARSED, function(ev, data) {
-        dbg('HLS', 'Manifest OK - ' + data.levels.length + ' levels', 'ok');
-        if (data.levels.length > 0) {
-          var lv = data.levels[0];
-          if (lv.videoCodec) {
-            codecString = lv.videoCodec.trim();
-          } else if (lv.attrs && lv.attrs.CODECS) {
-            var codecs = lv.attrs.CODECS.split(',');
-            for (var i = 0; i < codecs.length; i++) {
-              if (codecs[i].trim().indexOf('avc') === 0) {
-                codecString = codecs[i].trim();
-                break;
-              }
-            }
-          }
-          dbg('Manifest codec', codecString, 'info');
-          dbg('Manifest res', (lv.width||'?') + 'x' + (lv.height||'?'), 'info');
-        }
-
-        // Start audio playback
+        dbg('HLS', data.levels.length + ' levels', 'ok');
+        if (data.levels.length > 0 && data.levels[0].videoCodec)
+          codecString = data.levels[0].videoCodec.trim();
         audioVideo.play().then(function() {
           dbg('Audio', 'PLAYING', 'ok');
         }).catch(function() {
           audioVideo.muted = true;
           audioVideo.play().then(function() {
-            dbg('Audio', 'Muted start', 'warn');
             setTimeout(function() { audioVideo.muted = false; }, 2000);
           });
         });
       });
 
-      // Step 2: Get init segment from BUFFER_CODECS event
-      // This is the MOST RELIABLE way to get the init segment
       hls.on(Hls.Events.BUFFER_CODECS, function(ev, data) {
-        dbg('BufferCodecs', 'Received', 'ok');
-        if (data.video) {
-          dbg('VideoTrack', data.video.codec + ' / ' + data.video.container, 'ok');
-
-          if (data.video.initSegment) {
-            var initSeg = data.video.initSegment;
-            dbg('InitSeg', initSeg.byteLength + ' bytes', 'ok');
-
-            // Extract avcC from the init segment
-            avcCData = extractAvcC(initSeg);
-
-            // Setup decoder
-            if (hasWC) {
-              var cs = data.video.codec || codecString;
-              setupDecoder(cs, avcCData);
-            }
-          } else {
-            dbg('InitSeg', 'NOT in BUFFER_CODECS', 'warn');
-          }
+        if (data.video && data.video.initSegment && hasWC) {
+          dbg('InitSeg', data.video.initSegment.byteLength + 'b', 'ok');
+          avcCData = extractAvcC(data.video.initSegment);
+          setupDecoder(data.video.codec || codecString, avcCData);
         }
       });
 
-      // Step 3: Intercept media segments from BUFFER_APPENDING
       hls.on(Hls.Events.BUFFER_APPENDING, function(ev, data) {
-        if (data.type !== 'video') return;
-        if (!hasWC) return;
-
-        var buf;
-        if (data.data instanceof Uint8Array) {
-          buf = data.data;
-        } else if (data.data instanceof ArrayBuffer) {
-          buf = new Uint8Array(data.data);
-        } else {
-          return;
+        if (data.type !== 'video' || !hasWC) return;
+        var buf = data.data instanceof Uint8Array ? data.data : new Uint8Array(data.data);
+        var moovCheck = findBoxes(buf, 0, buf.byteLength, 'moov');
+        if (moovCheck.length > 0) {
+          var newAvcC = extractAvcC(buf);
+          if (newAvcC) { avcCData = newAvcC; setupDecoder(codecString, avcCData); }
         }
-
-        // Check if this contains a moov box (init segment)
-        // BUFFER_CODECS should handle this, but as fallback:
-        if (!decoderReady) {
-          var moovCheck = findBoxes(buf, 0, buf.byteLength, 'moov');
-          if (moovCheck.length > 0) {
-            dbg('Fallback', 'Init seg via BUFFER_APPENDING', 'warn');
-            avcCData = extractAvcC(buf);
-            setupDecoder(codecString, avcCData);
-          }
-        }
-
-        // Process media segment (moof+mdat)
-        var moofCheck = findBoxes(buf, 0, buf.byteLength, 'moof');
-        if (moofCheck.length > 0 && decoderReady) {
+        if (findBoxes(buf, 0, buf.byteLength, 'moof').length > 0 && decoderReady) {
           processMediaSegment(buf);
         }
       });
 
-      // Handle quality switches - need to re-init decoder
       hls.on(Hls.Events.LEVEL_SWITCHED, function(ev, data) {
         var lv = hls.levels[data.level];
         if (lv) {
           dbg('Quality', (lv.width||'?') + 'x' + (lv.height||'?') + ' L' + data.level, 'info');
-          // Reset for new init segment
-          decoderReady = false;
-          avcCData = null;
           waitingForKeyframe = true;
           sampleTimestamp = 0;
         }
       });
 
       hls.on(Hls.Events.ERROR, function(ev, data) {
-        dbg('HLS err', data.details, 'fail');
         if (data.fatal) {
-          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-            hls.recoverMediaError();
-          } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            setTimeout(function() { hls.startLoad(); }, 3000);
-          }
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+          else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) setTimeout(function() { hls.startLoad(); }, 3000);
         }
       });
 
       currentHls = hls;
-
       var c = document.getElementById('videoContainer');
       c.innerHTML = '';
       c.appendChild(audioVideo);
@@ -604,9 +520,12 @@
       if (currentHls) { currentHls.destroy(); currentHls = null; }
       if (videoDecoder) { try { videoDecoder.close(); } catch(e) {} videoDecoder = null; }
       if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null; }
+      while (frameQueue.length > 0) { frameQueue.shift().close(); }
+      renderLoopRunning = false; canvasChecked = false;
       decodedTotal = 0; frameCount = 0; errorCount = 0; canvasMode = true; debugInfo = {};
       gotFirstFrame = false; waitingForKeyframe = true; decoderReady = false;
       avcCData = null; segmentCount = 0; sampleTimestamp = 0;
+      timeOffset = 0; timeOffsetSet = false; droppedFrames = 0;
       renderCanvas.style.display = 'block'; displayImg.style.display = 'none';
     }
 
@@ -621,26 +540,20 @@
           iframe.setAttribute('allowfullscreen', true);
           var c = document.getElementById('videoContainer');
           c.innerHTML = ''; c.appendChild(iframe);
-        } else {
-          playStream(url);
-        }
+        } else { playStream(url); }
       });
       return button;
     }
 
     function start() {
-      var hasWC = typeof VideoDecoder !== 'undefined';
-      dbg('WebCodecs', hasWC ? 'AVAILABLE' : 'NOT AVAILABLE', hasWC ? 'ok' : 'fail');
-      dbg('HLS.js', Hls.isSupported() ? 'YES' : 'NO', Hls.isSupported() ? 'ok' : 'fail');
-
+      dbg('WebCodecs', typeof VideoDecoder !== 'undefined' ? 'YES' : 'NO', typeof VideoDecoder !== 'undefined' ? 'ok' : 'fail');
       fetch('https://raw.githubusercontent.com/soulnous/mybabe/main/lol1.m3u')
         .then(function(r) { return r.text(); })
         .then(function(data) {
           var picker = document.getElementById('channelPicker');
           picker.innerHTML = '';
           var lines = data.split(/\r?\n/);
-          var channels = [];
-          var cur = {};
+          var channels = []; var cur = {};
           lines.forEach(function(line) {
             if (line.startsWith('#EXTINF:-1')) {
               if (cur.name && cur.logo && cur.url) { channels.push(cur); cur = {}; }
@@ -651,16 +564,10 @@
             } else if (line.trim() !== '' && !line.startsWith('#')) { cur.url = line; }
           });
           if (cur.name && cur.logo && cur.url) channels.push(cur);
-          channels.forEach(function(ch) {
-            picker.appendChild(createButton(ch.name, ch.logo, ch.url, ch.groupTitle));
-          });
+          channels.forEach(function(ch) { picker.appendChild(createButton(ch.name, ch.logo, ch.url, ch.groupTitle)); });
           dbg('Channels', channels.length + ' loaded', 'ok');
-        })
-        .catch(function(e) {
-          dbg('Channels', 'LOAD FAIL: ' + e.message, 'fail');
         });
     }
-
     window.onload = function() { start(); };
   </script>
 </body>
