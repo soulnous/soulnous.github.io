@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>OpenMyCarIL - Tesla TV Player v6.2</title>
+  <title>OpenMyCarIL - Tesla TV Player v6.0</title>
   <link rel="icon" href="https://images.shulcloud.com/1105/uploads/OTT/vbstv-square-icon-512.jpg" type="image/x-icon">
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <style>
@@ -55,14 +55,10 @@
     var sampleTimestamp = 0;
     var droppedFrames = 0;
 
-    // ---- ADAPTIVE TIME SYNC ----
-    // timeOffset maps frame timestamps (seconds) to audio.currentTime:
-    //   audioEquivalent = frame.timestamp/1000000 - timeOffset
-    // We continuously refine this using an exponential moving average
+    // Time offset: maps frame timestamps to audio.currentTime
+    // We discover this offset from the first frame: offset = firstFrameTs - audio.currentTime at that moment
     var timeOffset = 0;
     var timeOffsetSet = false;
-    var offsetSamples = 0;       // How many offset measurements we've taken
-    var recalibCount = 0;
 
     var audioVideo = document.getElementById('audioVideo');
     var renderCanvas = document.getElementById('renderCanvas');
@@ -75,7 +71,7 @@
     setInterval(function() {
       dbg('FPS', frameCount, frameCount > 0 ? 'ok' : 'warn');
       dbg('Audio', (audioVideo.currentTime||0).toFixed(1)+'s / '+(audioVideo.paused?'PAUSED':'playing'), audioVideo.paused?'warn':'ok');
-      var html = '<b>=== TESLA v6.2 ===</b><br>';
+      var html = '<b>=== TESLA v6.0 ===</b><br>';
       for (var k in debugInfo) html += k+': '+debugInfo[k]+'<br>';
       debugPanel.innerHTML = html;
       frameCount = 0;
@@ -266,14 +262,15 @@
       dbg('Segments', segmentCount, 'ok');
     }
 
-    // ---- Frame Queue with ADAPTIVE timestamp sync to audio ----
+    // ---- Frame Queue with timestamp-based sync to audio ----
+    // Each frame has a .timestamp (microseconds) from WebCodecs.
+    // We convert to seconds and compare with audioVideo.currentTime.
+    // The offset between these two timelines is learned from the first frame.
     var frameQueue = [];
     var MAX_QUEUE = 500;
     var renderLoopRunning = false;
     var canvasChecked = false;
     var frameIntervalMs = 40;
-    var noFrameTicks = 0;
-    var lastRenderedTs = 0; // last frame.timestamp we rendered
 
     function onFrame(frame) {
       decodedTotal++;
@@ -282,14 +279,22 @@
         renderCanvas.width = frame.displayWidth;
         renderCanvas.height = frame.displayHeight;
         dbg('FirstFrame', frame.displayWidth + 'x' + frame.displayHeight, 'ok');
+
+        // Learn the time offset ONCE from the very first frame.
+        // frame.timestamp is in microseconds, audioVideo.currentTime is in seconds.
+        if (!timeOffsetSet && audioVideo.currentTime > 0) {
+          var frameTimeSec = frame.timestamp / 1000000;
+          timeOffset = frameTimeSec - audioVideo.currentTime;
+          timeOffsetSet = true;
+          dbg('TimeOffset', timeOffset.toFixed(3), 'ok');
+        }
       }
 
-      // Set initial offset from early frames
+      // If offset not set yet (audio wasn't playing), try on each frame until we get it
       if (!timeOffsetSet && audioVideo.currentTime > 0) {
         var frameTimeSec = frame.timestamp / 1000000;
         timeOffset = frameTimeSec - audioVideo.currentTime;
         timeOffsetSet = true;
-        offsetSamples = 1;
         dbg('TimeOffset', timeOffset.toFixed(3), 'ok');
       }
 
@@ -305,13 +310,15 @@
     }
 
     function scheduleRender() {
-      setTimeout(renderLoop, 8);
+      setTimeout(renderLoop, 8); // Run at ~120hz, we pick the right frame by timestamp
     }
 
     // Convert audio.currentTime to frame timestamp space (microseconds)
     function audioTimeToFrameTs(audioTime) {
       return (audioTime + timeOffset) * 1000000;
     }
+
+    var noFrameTicks = 0; // counts consecutive ticks with no frame to show
 
     function renderLoop() {
       if (frameQueue.length === 0) {
@@ -320,6 +327,7 @@
       }
 
       if (!timeOffsetSet) {
+        // Can't sync yet, just wait
         scheduleRender();
         return;
       }
@@ -327,38 +335,43 @@
       var audioNow = audioVideo.currentTime;
       var targetTs = audioTimeToFrameTs(audioNow);
 
-      // Find the best frame: latest frame whose timestamp <= targetTs
+      // Find the best frame to show: the latest frame whose timestamp <= targetTs
+      // Drop all frames that are older than targetTs (they're late, we missed them)
       var bestFrame = null;
       while (frameQueue.length > 0) {
         var front = frameQueue[0];
         if (front.timestamp <= targetTs) {
+          // This frame should have been shown by now
           if (bestFrame) {
-            bestFrame.close();
+            bestFrame.close(); // close the previous "best" - it's even older
             droppedFrames++;
           }
           bestFrame = frameQueue.shift();
         } else {
+          // This frame is in the future - stop
           break;
         }
       }
 
-      if (bestFrame) {
+      // ANTI-FREEZE: if no frame found for 200ms but queue has frames,
+      // the offset may have drifted. Re-calibrate to get back on track.
+      if (!bestFrame && frameQueue.length > 0) {
+        noFrameTicks++;
+        if (noFrameTicks > 25) {
+          // Re-calibrate: set offset so next frame in queue = audio NOW
+          var nextFrame = frameQueue[0];
+          var newOffset = nextFrame.timestamp / 1000000 - audioNow;
+          dbg('Recalib', timeOffset.toFixed(2) + '->' + newOffset.toFixed(2), 'warn');
+          timeOffset = newOffset;
+          noFrameTicks = 0;
+          // Don't grab a frame this tick - let next tick pick it up naturally
+        }
+      } else if (bestFrame) {
         noFrameTicks = 0;
+      }
 
-        // ---- ADAPTIVE OFFSET: continuously refine on every rendered frame ----
-        // Measure what the offset "should be" based on this frame
-        var measuredOffset = bestFrame.timestamp / 1000000 - audioNow;
-        offsetSamples++;
-
-        // Use exponential moving average with slow adaptation
-        // alpha = 0.02 means ~50 frame average, very smooth, no jumps
-        // But for the first 10 samples, use faster adaptation to converge quickly
-        var alpha = offsetSamples < 10 ? 0.2 : 0.02;
-        timeOffset = timeOffset * (1 - alpha) + measuredOffset * alpha;
-
-        lastRenderedTs = bestFrame.timestamp;
-
-        // Render
+      // Render the best frame (most recent one that's not in the future)
+      if (bestFrame) {
         if (renderCanvas.width !== bestFrame.displayWidth ||
             renderCanvas.height !== bestFrame.displayHeight) {
           renderCanvas.width = bestFrame.displayWidth;
@@ -403,39 +416,12 @@
         }
 
         bestFrame.close();
-      } else if (frameQueue.length > 0) {
-        // No frame matched (all are "in the future")
-        noFrameTicks++;
-
-        // GENTLE anti-freeze: instead of hard recalibration that causes fast-forward,
-        // gradually nudge the offset toward the queue's front frame.
-        // After 300ms (38 ticks at 8ms), start nudging slowly.
-        // After 800ms (100 ticks), nudge faster.
-        // This prevents the dump-all-frames-at-once problem.
-        if (noFrameTicks > 38) {
-          var nextFrame = frameQueue[0];
-          var idealOffset = nextFrame.timestamp / 1000000 - audioNow;
-          // How far off are we?
-          var gap = idealOffset - timeOffset;
-
-          // Nudge toward ideal by a small fraction per tick
-          // After 38 ticks: nudge 3% per tick (takes ~1s to fully converge)
-          // After 100 ticks: nudge 8% per tick (faster convergence if really stuck)
-          var nudge = noFrameTicks > 100 ? 0.08 : 0.03;
-          timeOffset = timeOffset + gap * nudge;
-
-          if (noFrameTicks % 50 === 0) {
-            dbg('Nudge', 'gap=' + gap.toFixed(2) + 's ticks=' + noFrameTicks, 'warn');
-            recalibCount++;
-          }
-        }
       }
 
       // Debug: show sync info
       var frontTs = frameQueue.length > 0 ? (frameQueue[0].timestamp / 1000000 - timeOffset).toFixed(2) : '?';
       dbg('Sync', 'A=' + audioNow.toFixed(2) + ' nextF=' + frontTs + ' Q=' + frameQueue.length + ' drop=' + droppedFrames,
           frameQueue.length > 200 ? 'warn' : 'ok');
-      dbg('Offset', timeOffset.toFixed(3) + ' samples=' + offsetSamples + ' recal=' + recalibCount, 'ok');
 
       scheduleRender();
     }
@@ -550,8 +536,7 @@
       decodedTotal = 0; frameCount = 0; errorCount = 0; canvasMode = true; debugInfo = {};
       gotFirstFrame = false; waitingForKeyframe = true; decoderReady = false;
       avcCData = null; segmentCount = 0; sampleTimestamp = 0;
-      timeOffset = 0; timeOffsetSet = false; offsetSamples = 0; recalibCount = 0;
-      droppedFrames = 0; noFrameTicks = 0; lastRenderedTs = 0;
+      timeOffset = 0; timeOffsetSet = false; droppedFrames = 0; lastOffsetUpdateSeg = -1;
       renderCanvas.style.display = 'block'; displayImg.style.display = 'none';
     }
 
