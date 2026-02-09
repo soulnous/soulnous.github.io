@@ -1,111 +1,33 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>OpenMyCarIL - Tesla TV Player v4</title>
+  <title>OpenMyCarIL - Tesla TV Player v4.2</title>
   <link rel="icon" href="https://images.shulcloud.com/1105/uploads/OTT/vbstv-square-icon-512.jpg" type="image/x-icon">
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <style>
-    body {
-      position: relative;
-      margin: 0;
-      padding: 0;
-      background-color: #121212;
-      color: #fff;
-      display: flex;
-    }
-    #supportButton {
-      display: block;
-      font-family: tahoma;
-      text-align: center;
-      padding-bottom: 10px;
-    }
-    #supportButton a {
-      text-decoration: none;
-      color: #aaa;
-      font-size: 20px;
-    }
-    #content {
-      flex: 1;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-    #channelPicker {
-      display: flex;
-      flex-direction: column;
-      overflow-y: auto;
-      overflow-x: hidden;
-      height: 100vh;
-    }
-    #channelPicker button {
-      margin: 5px 0;
-      cursor: pointer;
-    }
-    #channelPicker img {
-      width: 100px;
-      height: auto;
-    }
-    #videoContainer {
-      flex: 1;
-      text-align: center;
-      position: relative;
-    }
-    #displayImg {
-      width: 95%;
-      max-height: 90%;
-      margin: 0 auto;
-      display: none;
-      background: #000;
-    }
-    #renderCanvas {
-      width: 95%;
-      max-height: 90%;
-      margin: 0 auto;
-      display: block;
-      background: #000;
-    }
-    #audioVideo {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      opacity: 0;
-      pointer-events: none;
-      z-index: -1;
-    }
-    #videoContainer iframe {
-      width: 95%;
-      height: 90%;
-    }
-    #debugPanel {
-      position: fixed;
-      top: 5px;
-      right: 5px;
-      background: rgba(0,0,0,0.85);
-      color: #0f0;
-      padding: 8px 12px;
-      font-size: 11px;
-      font-family: monospace;
-      border-radius: 4px;
-      z-index: 9999;
-      line-height: 1.5;
-      min-width: 320px;
-      text-align: left;
-      max-height: 50vh;
-      overflow-y: auto;
-    }
-    .dok { color: #0f0; }
-    .dfail { color: #f00; }
-    .dwarn { color: #ff0; }
-    .dinfo { color: #0ff; }
+    body { margin:0; padding:0; background:#121212; color:#fff; display:flex; }
+    #supportButton { display:block; font-family:tahoma; text-align:center; padding-bottom:10px; }
+    #supportButton a { text-decoration:none; color:#aaa; font-size:20px; }
+    #content { flex:1; height:100vh; display:flex; flex-direction:column; }
+    #channelPicker { display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; height:100vh; }
+    #channelPicker button { margin:5px 0; cursor:pointer; }
+    #channelPicker img { width:100px; height:auto; }
+    #videoContainer { flex:1; text-align:center; position:relative; }
+    #displayImg { width:95%; max-height:90%; margin:0 auto; display:none; background:#000; }
+    #renderCanvas { width:95%; max-height:90%; margin:0 auto; display:block; background:#000; }
+    #audioVideo { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; z-index:-1; }
+    #videoContainer iframe { width:95%; height:90%; }
+    #debugPanel { position:fixed; top:5px; right:5px; background:rgba(0,0,0,0.85); color:#0f0;
+      padding:8px 12px; font-size:11px; font-family:monospace; border-radius:4px; z-index:9999;
+      line-height:1.5; min-width:320px; text-align:left; max-height:60vh; overflow-y:auto; }
+    .dok { color:#0f0; } .dfail { color:#f00; } .dwarn { color:#ff0; } .dinfo { color:#0ff; }
   </style>
 </head>
 <body>
   <div id="channelPicker"></div>
   <div id="content">
     <div id="supportButton">
-      <a href="https://OpenMyCar-IL.com" target="_blank">
-        OpenMyCar-IL.com - FREE ISRAELI&WORLDWIDE TV CHANNELS
-      </a>
+      <a href="https://OpenMyCar-IL.com" target="_blank">OpenMyCar-IL.com - FREE ISRAELI&WORLDWIDE TV CHANNELS</a>
     </div>
     <div id="videoContainer">
       <video id="audioVideo" playsinline></video>
@@ -116,30 +38,21 @@
   <div id="debugPanel">Loading...</div>
 
   <script>
-    /**
-     * Tesla TV Player v4 - Fixed
-     *
-     * Strategy:
-     * - Use HLS.js ONLY for audio (attached to hidden video)
-     * - Use HLS.js custom buffer controller to intercept remuxed MP4 video data
-     * - Use WebCodecs to decode the video independently
-     * - Render VideoFrame to canvas (bypasses Tesla's video element block)
-     *
-     * Key insight: HLS.js transmuxes TS->MP4 internally. We intercept
-     * the MP4 video data BEFORE it goes to MSE, and feed it to WebCodecs.
-     */
-
     var currentHls = null;
     var videoDecoder = null;
     var frameCount = 0;
     var decodedTotal = 0;
+    var errorCount = 0;
     var currentBlobUrl = null;
-    var canvasMode = true; // true=canvas, false=img fallback
+    var canvasMode = true;
     var debugInfo = {};
-    var initSegmentData = null;
-    var codecString = null;
-    var videoWidth = 0;
-    var videoHeight = 0;
+    var codecString = 'avc1.42E01E';
+    var gotFirstFrame = false;
+    var waitingForKeyframe = true;
+    var decoderReady = false;
+    var avcCData = null;
+    var segmentCount = 0;
+    var sampleTimestamp = 0;
 
     var audioVideo = document.getElementById('audioVideo');
     var renderCanvas = document.getElementById('renderCanvas');
@@ -147,25 +60,303 @@
     var debugPanel = document.getElementById('debugPanel');
     var ctx = renderCanvas.getContext('2d');
 
-    function dbg(k, v, s) {
-      debugInfo[k] = '<span class="d' + (s||'info') + '">' + v + '</span>';
-    }
+    function dbg(k,v,s) { debugInfo[k]='<span class="d'+(s||'info')+'">'+v+'</span>'; }
 
     setInterval(function() {
       dbg('FPS', frameCount, frameCount > 0 ? 'ok' : 'warn');
-      var html = '<b>=== TESLA v4 Fixed ===</b><br>';
-      for (var k in debugInfo) html += k + ': ' + debugInfo[k] + '<br>';
+      dbg('Audio', (audioVideo.currentTime||0).toFixed(1)+'s / '+(audioVideo.paused?'PAUSED':'playing'), audioVideo.paused?'warn':'ok');
+      if (videoDecoder) {
+        dbg('DecQueue', videoDecoder.decodeQueueSize, 'info');
+        dbg('DecState', videoDecoder.state, videoDecoder.state==='configured'?'ok':'warn');
+      }
+      var html = '<b>=== TESLA v4.2 WebCodecs ===</b><br>';
+      for (var k in debugInfo) html += k+': '+debugInfo[k]+'<br>';
       debugPanel.innerHTML = html;
       frameCount = 0;
     }, 1000);
 
-    // ---- WebCodecs Decoder ----
+    // ---- fMP4 Box Parser ----
+    function readU32(d, o) { return (d[o]<<24)|(d[o+1]<<16)|(d[o+2]<<8)|d[o+3]; }
+    function readU16(d, o) { return (d[o]<<8)|d[o+1]; }
+    function boxType(d, o) { return String.fromCharCode(d[o],d[o+1],d[o+2],d[o+3]); }
 
+    // Find all top-level boxes of given type within a range
+    function findBoxes(data, start, end, type) {
+      var results = [];
+      var pos = start;
+      while (pos + 8 <= end) {
+        var size = readU32(data, pos);
+        if (size < 8) break;
+        if (pos + size > end) break;
+        var t = boxType(data, pos + 4);
+        if (t === type) {
+          results.push({ offset: pos, size: size, headerSize: 8 });
+        }
+        pos += size;
+      }
+      return results;
+    }
+
+    // Find first box of given type, searching children of container boxes
+    function findBoxPath(data, start, end, path) {
+      var types = path.split('.');
+      var searchStart = start;
+      var searchEnd = end;
+
+      for (var i = 0; i < types.length; i++) {
+        var found = findBoxes(data, searchStart, searchEnd, types[i]);
+        if (found.length === 0) return null;
+        var box = found[0];
+        // For next level, search inside this box (skip header)
+        searchStart = box.offset + box.headerSize;
+        searchEnd = box.offset + box.size;
+      }
+      return { offset: searchStart - 8, size: searchEnd - searchStart + 8,
+               dataStart: searchStart, dataEnd: searchEnd };
+    }
+
+    // Extract avcC data from init segment (ftyp+moov)
+    function extractAvcC(initData) {
+      // Navigate: moov > trak > mdia > minf > stbl > stsd
+      var stsd = findBoxPath(initData, 0, initData.byteLength, 'moov.trak.mdia.minf.stbl.stsd');
+      if (!stsd) {
+        dbg('Parse', 'No stsd found', 'fail');
+        return null;
+      }
+
+      // stsd has: version(4) + entry_count(4) then entries
+      // Each entry starts with its own box header
+      var entryStart = stsd.dataStart + 8; // skip version+flags(4) + entry_count(4)
+      var entryEnd = stsd.dataEnd;
+
+      // Find avc1 or avc3 entry
+      var avc1 = findBoxes(initData, entryStart, entryEnd, 'avc1');
+      if (avc1.length === 0) avc1 = findBoxes(initData, entryStart, entryEnd, 'avc3');
+      if (avc1.length === 0) {
+        dbg('Parse', 'No avc1/avc3 found', 'fail');
+        return null;
+      }
+
+      var entry = avc1[0];
+      // avc1 Visual Sample Entry:
+      // box header (8) + reserved(6) + data_ref_index(2) + pre_defined(2) + reserved(2) +
+      // pre_defined(12) + width(2) + height(2) + horizresolution(4) + vertresolution(4) +
+      // reserved(4) + frame_count(2) + compressorname(32) + depth(2) + pre_defined(2)
+      // = 78 bytes after box header, then child boxes (avcC, etc.)
+      var innerStart = entry.offset + entry.headerSize + 70; // 8 + 70 = 78 from box start
+      var innerEnd = entry.offset + entry.size;
+
+      // Extract width/height from avc1 box
+      var w = readU16(initData, entry.offset + entry.headerSize + 24);
+      var h = readU16(initData, entry.offset + entry.headerSize + 26);
+      if (w > 0 && h > 0) {
+        dbg('Resolution', w + 'x' + h, 'ok');
+      }
+
+      // Find avcC box inside avc1
+      var avcCBoxes = findBoxes(initData, innerStart, innerEnd, 'avcC');
+      if (avcCBoxes.length === 0) {
+        dbg('Parse', 'No avcC box inside avc1', 'fail');
+        return null;
+      }
+
+      var avcCBox = avcCBoxes[0];
+      // Return the avcC box DATA (without the 8-byte box header)
+      var avcCContent = initData.slice(avcCBox.offset + avcCBox.headerSize, avcCBox.offset + avcCBox.size);
+
+      // Extract codec string from avcC
+      // avcC: configurationVersion(1), profile(1), constraint(1), level(1)
+      if (avcCContent.length >= 4) {
+        var profile = avcCContent[1];
+        var constraint = avcCContent[2];
+        var level = avcCContent[3];
+        var hex = function(v) { return ('0'+v.toString(16)).slice(-2).toUpperCase(); };
+        codecString = 'avc1.' + hex(profile) + hex(constraint) + hex(level);
+        dbg('Codec', codecString + ' (from avcC)', 'ok');
+      }
+
+      dbg('avcC', avcCContent.byteLength + ' bytes extracted', 'ok');
+      return avcCContent;
+    }
+
+    // Parse trun box to get sample sizes, flags, durations
+    function parseTrunBox(data, boxOffset, boxSize) {
+      var pos = boxOffset + 8; // skip box header
+      var version = data[pos]; pos++;
+      var flags = (data[pos]<<16)|(data[pos+1]<<8)|data[pos+2]; pos += 3;
+      var sampleCount = readU32(data, pos); pos += 4;
+
+      var hasDataOffset = !!(flags & 0x1);
+      var hasFirstSampleFlags = !!(flags & 0x4);
+      var hasDuration = !!(flags & 0x100);
+      var hasSize = !!(flags & 0x200);
+      var hasFlags = !!(flags & 0x400);
+      var hasCTO = !!(flags & 0x800);
+
+      var dataOffsetVal = 0;
+      if (hasDataOffset) { dataOffsetVal = readU32(data, pos); pos += 4; }
+
+      var firstSampleFlags = 0;
+      if (hasFirstSampleFlags) { firstSampleFlags = readU32(data, pos); pos += 4; }
+
+      var samples = [];
+      for (var i = 0; i < sampleCount; i++) {
+        var s = { duration: 0, size: 0, flags: 0, cto: 0 };
+        if (hasDuration) { s.duration = readU32(data, pos); pos += 4; }
+        if (hasSize) { s.size = readU32(data, pos); pos += 4; }
+        if (hasFlags) {
+          s.flags = readU32(data, pos); pos += 4;
+        } else if (i === 0 && hasFirstSampleFlags) {
+          s.flags = firstSampleFlags;
+        }
+        if (hasCTO) {
+          s.cto = readU32(data, pos); pos += 4;
+          if (version === 1 && (s.cto & 0x80000000)) {
+            s.cto = s.cto - 0x100000000; // signed
+          }
+        }
+        // Keyframe: sample_depends_on == 2 means NOT a keyframe
+        // sample_is_non_sync_sample flag (0x10000) set = NOT keyframe
+        // If flags is 0, typically means keyframe
+        var dependsOn = (s.flags >> 24) & 0x3;
+        var isNonSync = (s.flags >> 16) & 0x1;
+        s.isKey = (dependsOn !== 2) && (isNonSync === 0);
+        samples.push(s);
+      }
+
+      return { dataOffset: dataOffsetVal, samples: samples };
+    }
+
+    // Parse tfdt for base decode time
+    function parseTfdt(data, boxOffset) {
+      var pos = boxOffset + 8; // skip box header
+      var version = data[pos];
+      if (version === 0) {
+        return readU32(data, pos + 4);
+      } else {
+        // 64-bit, just use lower 32 bits for simplicity (enough for our timestamps)
+        return readU32(data, pos + 8);
+      }
+    }
+
+    // Parse a media segment (moof+mdat) and feed samples to VideoDecoder
+    function processMediaSegment(data) {
+      if (!videoDecoder || videoDecoder.state !== 'configured') return;
+
+      var moofs = findBoxes(data, 0, data.byteLength, 'moof');
+      var mdats = findBoxes(data, 0, data.byteLength, 'mdat');
+
+      if (moofs.length === 0 || mdats.length === 0) {
+        dbg('Segment', 'No moof/mdat', 'warn');
+        return;
+      }
+
+      for (var m = 0; m < moofs.length; m++) {
+        var moof = moofs[m];
+        var mdat = m < mdats.length ? mdats[m] : mdats[mdats.length - 1];
+        var moofStart = moof.offset;
+        var moofEnd = moof.offset + moof.size;
+
+        // Find traf > trun
+        var trafs = findBoxes(data, moofStart + 8, moofEnd, 'traf');
+        if (trafs.length === 0) continue;
+
+        var traf = trafs[0];
+        var trafStart = traf.offset + 8;
+        var trafEnd = traf.offset + traf.size;
+
+        // Find tfdt for base decode time
+        var tfdts = findBoxes(data, trafStart, trafEnd, 'tfdt');
+        var baseTime = sampleTimestamp;
+        if (tfdts.length > 0) {
+          baseTime = parseTfdt(data, tfdts[0].offset);
+        }
+
+        // Find trun
+        var truns = findBoxes(data, trafStart, trafEnd, 'trun');
+        if (truns.length === 0) continue;
+
+        var trun = parseTrunBox(data, truns[0].offset, truns[0].size);
+
+        // Calculate sample data start position
+        var samplePos;
+        if (trun.dataOffset) {
+          // dataOffset is relative to moof start
+          samplePos = moofStart + trun.dataOffset;
+        } else {
+          // Default: samples start at mdat data area
+          samplePos = mdat.offset + mdat.headerSize;
+        }
+
+        var ts = baseTime;
+        var samplesDecoded = 0;
+
+        for (var i = 0; i < trun.samples.length; i++) {
+          var sample = trun.samples[i];
+          if (sample.size <= 0 || samplePos + sample.size > data.byteLength) continue;
+
+          var sampleData = data.slice(samplePos, samplePos + sample.size);
+          samplePos += sample.size;
+
+          var isKey = sample.isKey;
+
+          // Double-check: look at NAL unit type in the sample data
+          // fMP4 uses 4-byte length prefix (AVC format)
+          if (sampleData.length > 4) {
+            var nalType = sampleData[4] & 0x1F;
+            if (nalType === 5) isKey = true; // IDR
+            if (nalType === 7) isKey = true; // SPS (shouldn't be here, but just in case)
+          }
+
+          // If we're waiting for a keyframe, skip non-key frames
+          if (waitingForKeyframe && !isKey) {
+            continue;
+          }
+
+          if (videoDecoder.decodeQueueSize > 10) {
+            // Queue too full, skip this sample
+            continue;
+          }
+
+          try {
+            var chunk = new EncodedVideoChunk({
+              type: isKey ? 'key' : 'delta',
+              timestamp: ts * (1000000 / 90000), // 90kHz timescale to microseconds
+              duration: (sample.duration || 3000) * (1000000 / 90000),
+              data: sampleData
+            });
+            videoDecoder.decode(chunk);
+            samplesDecoded++;
+
+            if (isKey && waitingForKeyframe) {
+              waitingForKeyframe = false;
+              dbg('Keyframe', 'FOUND! Decoding...', 'ok');
+            }
+          } catch(e) {
+            errorCount++;
+            dbg('DecErr', e.message + ' (#' + errorCount + ')', 'fail');
+          }
+
+          ts += sample.duration || 3000;
+        }
+
+        sampleTimestamp = ts;
+        dbg('Samples', samplesDecoded + '/' + trun.samples.length + ' decoded', samplesDecoded>0?'ok':'warn');
+      }
+      segmentCount++;
+      dbg('Segments', segmentCount, 'ok');
+    }
+
+    // ---- WebCodecs Decoder ----
     function onFrame(frame) {
       decodedTotal++;
 
-      if (renderCanvas.width !== frame.displayWidth ||
-          renderCanvas.height !== frame.displayHeight) {
+      if (!gotFirstFrame) {
+        gotFirstFrame = true;
+        dbg('FirstFrame', frame.displayWidth + 'x' + frame.displayHeight, 'ok');
+      }
+
+      if (renderCanvas.width !== frame.displayWidth || renderCanvas.height !== frame.displayHeight) {
         renderCanvas.width = frame.displayWidth;
         renderCanvas.height = frame.displayHeight;
       }
@@ -173,51 +364,47 @@
       if (canvasMode) {
         try {
           ctx.drawImage(frame, 0, 0);
-          // Quick check if pixels are real
-          var px = ctx.getImageData(frame.displayWidth/2, frame.displayHeight/2, 1, 1).data;
-          if ((px[0]+px[1]+px[2]) > 10) {
+          // Check if canvas drawImage actually worked (Tesla may block it)
+          var px = ctx.getImageData(
+            Math.floor(frame.displayWidth / 2),
+            Math.floor(frame.displayHeight / 2), 1, 1
+          ).data;
+          if ((px[0] + px[1] + px[2]) > 10) {
             dbg('Render', 'CANVAS OK', 'ok');
             frameCount++;
           } else {
-            dbg('Render', 'BLACK - switching to IMG', 'warn');
+            // Canvas shows black - switch to img mode
+            dbg('Render', 'CANVAS BLACK -> IMG fallback', 'warn');
             canvasMode = false;
-            canvasToImg();
           }
         } catch(e) {
-          dbg('Render', 'Canvas error: ' + e.message + ' - switching to IMG', 'fail');
+          dbg('Render', 'CANVAS ERR -> IMG: ' + e.message, 'fail');
           canvasMode = false;
-          canvasToImg();
         }
-      } else {
-        // IMG fallback mode
-        try {
-          ctx.drawImage(frame, 0, 0);
-        } catch(e) {}
-        canvasToImg();
+      }
+
+      if (!canvasMode) {
+        // Img fallback: draw to canvas then blob -> img
+        try { ctx.drawImage(frame, 0, 0); } catch(e) {}
+        renderCanvas.toBlob(function(blob) {
+          if (blob && blob.size > 500) {
+            if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+            currentBlobUrl = URL.createObjectURL(blob);
+            displayImg.src = currentBlobUrl;
+            displayImg.style.display = 'block';
+            renderCanvas.style.display = 'none';
+            frameCount++;
+            dbg('Render', 'IMG OK (' + blob.size + 'b)', 'ok');
+          }
+        }, 'image/jpeg', 0.85);
       }
 
       frame.close();
       dbg('Decoded', decodedTotal, 'ok');
     }
 
-    function canvasToImg() {
-      renderCanvas.toBlob(function(blob) {
-        if (blob && blob.size > 2000) {
-          if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
-          currentBlobUrl = URL.createObjectURL(blob);
-          displayImg.src = currentBlobUrl;
-          displayImg.style.display = 'block';
-          renderCanvas.style.display = 'none';
-          frameCount++;
-          dbg('Render', 'IMG fallback OK (' + blob.size + 'b)', 'ok');
-        }
-      }, 'image/jpeg', 0.85);
-    }
-
-    function setupDecoder(codec, width, height) {
-      if (videoDecoder) {
-        try { videoDecoder.close(); } catch(e){}
-      }
+    function setupDecoder(codec, description) {
+      if (videoDecoder) { try { videoDecoder.close(); } catch(e) {} }
 
       if (typeof VideoDecoder === 'undefined') {
         dbg('WebCodecs', 'NOT AVAILABLE', 'fail');
@@ -227,7 +414,8 @@
       videoDecoder = new VideoDecoder({
         output: onFrame,
         error: function(e) {
-          dbg('Decoder error', e.message, 'fail');
+          errorCount++;
+          dbg('Dec error', e.message + ' (#' + errorCount + ')', 'fail');
         }
       });
 
@@ -236,166 +424,153 @@
         optimizeForLatency: true,
         hardwareAcceleration: 'prefer-hardware'
       };
-      if (width && height) {
-        config.codedWidth = width;
-        config.codedHeight = height;
+
+      if (description && description.byteLength > 0) {
+        config.description = description;
+        dbg('Config', codec + ' + avcC(' + description.byteLength + 'b)', 'ok');
+      } else {
+        dbg('Config', codec + ' (no avcC!)', 'warn');
       }
 
       try {
         videoDecoder.configure(config);
-        dbg('Decoder', codec + ' ' + (width||'?') + 'x' + (height||'?'), 'ok');
+        decoderReady = true;
+        dbg('Decoder', 'CONFIGURED: ' + codec, 'ok');
         return true;
       } catch(e) {
-        dbg('Decoder config', 'FAILED: ' + e.message, 'fail');
+        dbg('Decoder', 'CONFIG FAIL: ' + e.message, 'fail');
         return false;
       }
     }
 
-    // ---- HLS.js with buffer interception ----
-
+    // ---- HLS.js Integration ----
     function playStream(url) {
       cleanup();
-      dbg('Status', 'Loading...', 'info');
+      dbg('Status', 'Loading: ' + url.substring(0, 50) + '...', 'info');
 
-      if (!Hls.isSupported()) {
-        dbg('HLS', 'Not supported', 'fail');
-        return;
-      }
+      var hasWC = typeof VideoDecoder !== 'undefined';
+      dbg('WebCodecs', hasWC ? 'AVAILABLE' : 'NOT AVAILABLE', hasWC ? 'ok' : 'fail');
 
-      var hasWebCodecs = typeof VideoDecoder !== 'undefined';
-      dbg('WebCodecs', hasWebCodecs ? 'YES' : 'NO', hasWebCodecs ? 'ok' : 'fail');
+      if (!Hls.isSupported()) { dbg('HLS', 'Not supported', 'fail'); return; }
 
-      // Create HLS instance
       var hls = new Hls({
-        enableWorker: true,
+        enableWorker: false, // Keep in main thread for easier data access
         lowLatencyMode: true
       });
 
-      // Attach to hidden video for audio
       hls.loadSource(url);
       hls.attachMedia(audioVideo);
 
+      // Step 1: Get codec info from manifest
       hls.on(Hls.Events.MANIFEST_PARSED, function(ev, data) {
         dbg('HLS', 'Manifest OK - ' + data.levels.length + ' levels', 'ok');
-
-        // Get codec and resolution
         if (data.levels.length > 0) {
-          var level = data.levels[0];
-          videoWidth = level.width || 0;
-          videoHeight = level.height || 0;
-          dbg('Stream', videoWidth + 'x' + videoHeight, 'info');
-
-          // Extract codec string from level
-          if (level.videoCodec) {
-            codecString = level.videoCodec;
-          } else if (level.attrs && level.attrs.CODECS) {
-            var codecs = level.attrs.CODECS.split(',');
+          var lv = data.levels[0];
+          if (lv.videoCodec) {
+            codecString = lv.videoCodec.trim();
+          } else if (lv.attrs && lv.attrs.CODECS) {
+            var codecs = lv.attrs.CODECS.split(',');
             for (var i = 0; i < codecs.length; i++) {
-              if (codecs[i].trim().startsWith('avc')) {
+              if (codecs[i].trim().indexOf('avc') === 0) {
                 codecString = codecs[i].trim();
                 break;
               }
             }
           }
-          if (!codecString) codecString = 'avc1.42E01E';
-          dbg('Codec', codecString, 'info');
-
-          if (hasWebCodecs) {
-            setupDecoder(codecString, videoWidth, videoHeight);
-          }
+          dbg('Manifest codec', codecString, 'info');
+          dbg('Manifest res', (lv.width||'?') + 'x' + (lv.height||'?'), 'info');
         }
 
+        // Start audio playback
         audioVideo.play().then(function() {
           dbg('Audio', 'PLAYING', 'ok');
         }).catch(function() {
           audioVideo.muted = true;
           audioVideo.play().then(function() {
-            dbg('Audio', 'Playing (muted)', 'warn');
+            dbg('Audio', 'Muted start', 'warn');
             setTimeout(function() { audioVideo.muted = false; }, 2000);
           });
         });
       });
 
-      // Listen for BUFFER_APPENDING to intercept MP4 video segments
-      hls.on(Hls.Events.BUFFER_APPENDING, function(ev, data) {
-        if (data.type === 'video' && hasWebCodecs && videoDecoder &&
-            videoDecoder.state === 'configured') {
+      // Step 2: Get init segment from BUFFER_CODECS event
+      // This is the MOST RELIABLE way to get the init segment
+      hls.on(Hls.Events.BUFFER_CODECS, function(ev, data) {
+        dbg('BufferCodecs', 'Received', 'ok');
+        if (data.video) {
+          dbg('VideoTrack', data.video.codec + ' / ' + data.video.container, 'ok');
 
-          var buf = data.data;
-          dbg('Buffer', data.type + ' ' + buf.byteLength + 'b', 'ok');
+          if (data.video.initSegment) {
+            var initSeg = data.video.initSegment;
+            dbg('InitSeg', initSeg.byteLength + ' bytes', 'ok');
 
-          // Parse the fMP4 to find moof+mdat boxes and extract video samples
-          try {
-            parseFMP4AndDecode(buf);
-          } catch(e) {
-            dbg('Parse error', e.message, 'fail');
-          }
-        }
-      });
+            // Extract avcC from the init segment
+            avcCData = extractAvcC(initSeg);
 
-      // Also try FRAG_PARSING_DATA
-      hls.on(Hls.Events.FRAG_PARSING_DATA, function(ev, data) {
-        if (data.type === 'video' && hasWebCodecs && videoDecoder) {
-          dbg('FragData', data.nb + ' samples', 'ok');
-
-          if (videoDecoder.state !== 'configured' && videoWidth > 0) {
-            setupDecoder(codecString, videoWidth, videoHeight);
-          }
-
-          if (videoDecoder.state === 'configured' && data.samples) {
-            for (var i = 0; i < data.nb; i++) {
-              var s = data.samples[i];
-              if (!s) continue;
-
-              var sampleData = null;
-              if (s.units && s.units.length > 0) {
-                // Combine NAL units
-                var total = 0;
-                for (var j = 0; j < s.units.length; j++) {
-                  total += s.units[j].data.byteLength;
-                }
-                var combined = new Uint8Array(total);
-                var off = 0;
-                for (var j = 0; j < s.units.length; j++) {
-                  combined.set(new Uint8Array(s.units[j].data), off);
-                  off += s.units[j].data.byteLength;
-                }
-                sampleData = combined;
-              } else if (s.data) {
-                sampleData = s.data;
-              }
-
-              if (sampleData && videoDecoder.decodeQueueSize < 5) {
-                try {
-                  videoDecoder.decode(new EncodedVideoChunk({
-                    type: s.key ? 'key' : 'delta',
-                    timestamp: (s.pts || 0) * 1000,
-                    duration: (s.duration || 33) * 1000,
-                    data: sampleData
-                  }));
-                } catch(e) {
-                  dbg('Decode err', e.message, 'fail');
-                }
-              }
+            // Setup decoder
+            if (hasWC) {
+              var cs = data.video.codec || codecString;
+              setupDecoder(cs, avcCData);
             }
+          } else {
+            dbg('InitSeg', 'NOT in BUFFER_CODECS', 'warn');
           }
         }
       });
 
+      // Step 3: Intercept media segments from BUFFER_APPENDING
+      hls.on(Hls.Events.BUFFER_APPENDING, function(ev, data) {
+        if (data.type !== 'video') return;
+        if (!hasWC) return;
+
+        var buf;
+        if (data.data instanceof Uint8Array) {
+          buf = data.data;
+        } else if (data.data instanceof ArrayBuffer) {
+          buf = new Uint8Array(data.data);
+        } else {
+          return;
+        }
+
+        // Check if this contains a moov box (init segment)
+        // BUFFER_CODECS should handle this, but as fallback:
+        if (!decoderReady) {
+          var moovCheck = findBoxes(buf, 0, buf.byteLength, 'moov');
+          if (moovCheck.length > 0) {
+            dbg('Fallback', 'Init seg via BUFFER_APPENDING', 'warn');
+            avcCData = extractAvcC(buf);
+            setupDecoder(codecString, avcCData);
+          }
+        }
+
+        // Process media segment (moof+mdat)
+        var moofCheck = findBoxes(buf, 0, buf.byteLength, 'moof');
+        if (moofCheck.length > 0 && decoderReady) {
+          processMediaSegment(buf);
+        }
+      });
+
+      // Handle quality switches - need to re-init decoder
       hls.on(Hls.Events.LEVEL_SWITCHED, function(ev, data) {
-        var level = hls.levels[data.level];
-        if (level) {
-          videoWidth = level.width || videoWidth;
-          videoHeight = level.height || videoHeight;
-          codecString = level.videoCodec || codecString || 'avc1.42E01E';
-          dbg('Quality', videoWidth + 'x' + videoHeight, 'info');
+        var lv = hls.levels[data.level];
+        if (lv) {
+          dbg('Quality', (lv.width||'?') + 'x' + (lv.height||'?') + ' L' + data.level, 'info');
+          // Reset for new init segment
+          decoderReady = false;
+          avcCData = null;
+          waitingForKeyframe = true;
+          sampleTimestamp = 0;
         }
       });
 
       hls.on(Hls.Events.ERROR, function(ev, data) {
         dbg('HLS err', data.details, 'fail');
-        if (data.fatal && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-          hls.recoverMediaError();
+        if (data.fatal) {
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            hls.recoverMediaError();
+          } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            setTimeout(function() { hls.startLoad(); }, 3000);
+          }
         }
       });
 
@@ -408,61 +583,15 @@
       c.appendChild(displayImg);
     }
 
-    // Simple fMP4 parser to extract video samples
-    function parseFMP4AndDecode(buffer) {
-      var view = new DataView(buffer.buffer || buffer);
-      var offset = 0;
-
-      while (offset < buffer.byteLength - 8) {
-        var size = view.getUint32(offset);
-        var type = String.fromCharCode(
-          view.getUint8(offset+4), view.getUint8(offset+5),
-          view.getUint8(offset+6), view.getUint8(offset+7)
-        );
-
-        if (size < 8 || offset + size > buffer.byteLength) break;
-
-        if (type === 'mdat') {
-          // mdat contains the raw video data
-          var mdatData = buffer.slice(offset + 8, offset + size);
-          if (mdatData.byteLength > 100 && videoDecoder &&
-              videoDecoder.state === 'configured' &&
-              videoDecoder.decodeQueueSize < 5) {
-
-            // Check if this looks like a keyframe (starts with SPS/PPS NALs)
-            var firstByte = mdatData[4] & 0x1F; // NAL type
-            var isKey = (firstByte === 5 || firstByte === 7); // IDR or SPS
-
-            try {
-              videoDecoder.decode(new EncodedVideoChunk({
-                type: isKey ? 'key' : 'delta',
-                timestamp: Date.now() * 1000,
-                data: mdatData
-              }));
-              dbg('mdat decode', mdatData.byteLength + 'b ' + (isKey?'KEY':'delta'), 'ok');
-            } catch(e) {
-              dbg('mdat err', e.message, 'fail');
-            }
-          }
-        }
-
-        offset += size;
-      }
-    }
-
     function cleanup() {
       if (currentHls) { currentHls.destroy(); currentHls = null; }
-      if (videoDecoder) { try { videoDecoder.close(); } catch(e){} videoDecoder = null; }
+      if (videoDecoder) { try { videoDecoder.close(); } catch(e) {} videoDecoder = null; }
       if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null; }
-      decodedTotal = 0;
-      frameCount = 0;
-      canvasMode = true;
-      debugInfo = {};
-      renderCanvas.style.display = 'block';
-      displayImg.style.display = 'none';
+      decodedTotal = 0; frameCount = 0; errorCount = 0; canvasMode = true; debugInfo = {};
+      gotFirstFrame = false; waitingForKeyframe = true; decoderReady = false;
+      avcCData = null; segmentCount = 0; sampleTimestamp = 0;
+      renderCanvas.style.display = 'block'; displayImg.style.display = 'none';
     }
-
-    // ---- UI ----
 
     function createButton(name, logo, url, groupTitle) {
       var button = document.createElement('button');
@@ -474,8 +603,7 @@
           iframe.src = 'https://www.mako.co.il/AjaxPage?jspName=embedHTML5video.jsp&galleryChannelId=7c5076a9b8757810VgnVCM100000700a10acRCRD&videoChannelId=d1d6f5dfc8517810VgnVCM100000700a10acRCRD&vcmid=1e2258089b67f510VgnVCM2000002a0c10acRCRD';
           iframe.setAttribute('allowfullscreen', true);
           var c = document.getElementById('videoContainer');
-          c.innerHTML = '';
-          c.appendChild(iframe);
+          c.innerHTML = ''; c.appendChild(iframe);
         } else {
           playStream(url);
         }
@@ -484,8 +612,9 @@
     }
 
     function start() {
-      dbg('VideoDecoder', typeof VideoDecoder !== 'undefined' ? 'YES':'NO',
-          typeof VideoDecoder !== 'undefined' ? 'ok':'fail');
+      var hasWC = typeof VideoDecoder !== 'undefined';
+      dbg('WebCodecs', hasWC ? 'AVAILABLE' : 'NOT AVAILABLE', hasWC ? 'ok' : 'fail');
+      dbg('HLS.js', Hls.isSupported() ? 'YES' : 'NO', Hls.isSupported() ? 'ok' : 'fail');
 
       fetch('https://raw.githubusercontent.com/soulnous/mybabe/main/lol1.m3u')
         .then(function(r) { return r.text(); })
@@ -495,30 +624,23 @@
           var lines = data.split(/\r?\n/);
           var channels = [];
           var cur = {};
-
           lines.forEach(function(line) {
             if (line.startsWith('#EXTINF:-1')) {
-              if (cur.name && cur.logo && cur.url) {
-                channels.push(cur);
-                cur = {};
-              }
+              if (cur.name && cur.logo && cur.url) { channels.push(cur); cur = {}; }
               var n = line.match(/tvg-id="([^"]+)"/);
               var l = line.match(/tvg-logo="([^"]+)"/);
               var g = line.match(/group-title="([^"]+)"/);
-              if (n && l) {
-                cur.name = n[1];
-                cur.logo = l[1];
-                cur.groupTitle = g ? g[1] : '';
-              }
-            } else if (line.trim() !== '' && !line.startsWith('#')) {
-              cur.url = line;
-            }
+              if (n && l) { cur.name = n[1]; cur.logo = l[1]; cur.groupTitle = g ? g[1] : ''; }
+            } else if (line.trim() !== '' && !line.startsWith('#')) { cur.url = line; }
           });
           if (cur.name && cur.logo && cur.url) channels.push(cur);
-
           channels.forEach(function(ch) {
             picker.appendChild(createButton(ch.name, ch.logo, ch.url, ch.groupTitle));
           });
+          dbg('Channels', channels.length + ' loaded', 'ok');
+        })
+        .catch(function(e) {
+          dbg('Channels', 'LOAD FAIL: ' + e.message, 'fail');
         });
     }
 
