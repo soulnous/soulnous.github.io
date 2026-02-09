@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>OpenMyCarIL - Tesla TV Player v5.3</title>
+  <title>OpenMyCarIL - Tesla TV Player v5.4</title>
   <link rel="icon" href="https://images.shulcloud.com/1105/uploads/OTT/vbstv-square-icon-512.jpg" type="image/x-icon">
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <style>
@@ -65,7 +65,7 @@
     setInterval(function() {
       dbg('FPS', frameCount, frameCount > 0 ? 'ok' : 'warn');
       dbg('Audio', (audioVideo.currentTime||0).toFixed(1)+'s / '+(audioVideo.paused?'PAUSED':'playing'), audioVideo.paused?'warn':'ok');
-      var html = '<b>=== TESLA v5.3 ===</b><br>';
+      var html = '<b>=== TESLA v5.4 ===</b><br>';
       for (var k in debugInfo) html += k+': '+debugInfo[k]+'<br>';
       debugPanel.innerHTML = html;
       frameCount = 0;
@@ -176,9 +176,20 @@
       return version === 0 ? readU32(data, pos + 4) : readU32(data, pos + 8);
     }
 
+    // ---- A/V Sync tracking ----
+    // We track the audio time when each segment's first frame arrives at the decoder.
+    // Each frame gets a "target audio time" = the audio time when it should be displayed.
+    // The render loop then skips frames whose target time has passed.
+    var segAudioTimeAtArrival = 0;  // audio.currentTime when segment was received
+    var segFirstFrameTs = 0;        // timestamp of first frame in that segment (microseconds)
+    var syncEstablished = false;
+
     // Process media segment - feed ALL samples to decoder immediately
     function processMediaSegment(data) {
       if (!videoDecoder || videoDecoder.state !== 'configured') return;
+
+      // Capture audio time RIGHT NOW when this segment arrives
+      var audioTimeNow = audioVideo.currentTime;
 
       var moofs = findBoxes(data, 0, data.byteLength, 'moof');
       var mdats = findBoxes(data, 0, data.byteLength, 'mdat');
@@ -204,6 +215,7 @@
         var samplePos = trun.dataOffset ? moof.offset + trun.dataOffset : mdat.offset + mdat.headerSize;
         var ts = baseTime;
         var decoded = 0;
+        var isFirstInSeg = true;
 
         for (var i = 0; i < trun.samples.length; i++) {
           var sample = trun.samples[i];
@@ -224,10 +236,20 @@
           if (i === 0 && !isKey && sample.size > 50000) isKey = true;
           if (waitingForKeyframe && !isKey) continue;
 
+          var frameTs = ts * (1000000 / 90000);
+
+          // Record sync point: first frame of this segment maps to current audio time
+          if (isFirstInSeg) {
+            segAudioTimeAtArrival = audioTimeNow;
+            segFirstFrameTs = frameTs;
+            syncEstablished = true;
+            isFirstInSeg = false;
+          }
+
           try {
             videoDecoder.decode(new EncodedVideoChunk({
               type: isKey ? 'key' : 'delta',
-              timestamp: ts * (1000000 / 90000),
+              timestamp: frameTs,
               duration: (sample.duration || 3000) * (1000000 / 90000),
               data: sampleData
             }));
@@ -253,13 +275,13 @@
       dbg('Segments', segmentCount, 'ok');
     }
 
-    // ---- Frame Queue & Paced Rendering ----
-    // This is the v4.8 approach that gave FPS:44 smooth playback
+    // ---- Frame Queue & Audio-Synced Rendering ----
     var frameQueue = [];
     var MAX_QUEUE = 300;
     var renderLoopRunning = false;
     var canvasChecked = false;
     var frameIntervalMs = 40;
+    var droppedFrames = 0;
 
     function onFrame(frame) {
       decodedTotal++;
@@ -285,10 +307,41 @@
       setTimeout(renderLoop, frameIntervalMs);
     }
 
+    // Compute the "target audio time" for a given frame based on sync mapping
+    function frameTargetAudioTime(frameTs) {
+      // frameTs is in microseconds, segFirstFrameTs in microseconds, segAudioTimeAtArrival in seconds
+      var offsetSec = (frameTs - segFirstFrameTs) / 1000000;
+      return segAudioTimeAtArrival + offsetSec;
+    }
+
     function renderLoop() {
       if (frameQueue.length === 0) {
         renderLoopRunning = false;
         return;
+      }
+
+      var now = audioVideo.currentTime;
+
+      // If sync is established, skip frames that are too old (their target time has passed)
+      // This prevents the delay from accumulating
+      if (syncEstablished && frameQueue.length > 1) {
+        var skipped = 0;
+        while (frameQueue.length > 1) {
+          var nextFrame = frameQueue[1]; // peek at the NEXT frame
+          var nextTarget = frameTargetAudioTime(nextFrame.timestamp);
+          // If the next frame's target time has already passed, we can skip the current one
+          if (nextTarget <= now) {
+            var old = frameQueue.shift();
+            old.close();
+            skipped++;
+            droppedFrames++;
+          } else {
+            break;
+          }
+        }
+        if (skipped > 0) {
+          dbg('Skip', droppedFrames + ' total (' + skipped + ' now)', 'warn');
+        }
       }
 
       var frameToRender = frameQueue.shift();
@@ -340,7 +393,13 @@
         frameToRender.close();
       }
 
-      dbg('Q', frameQueue.length + ' int=' + frameIntervalMs + 'ms', 'info');
+      var syncInfo = '';
+      if (syncEstablished && frameQueue.length > 0) {
+        var frontTarget = frameTargetAudioTime(frameQueue[0].timestamp);
+        var drift = (frontTarget - now).toFixed(2);
+        syncInfo = ' drift=' + drift + 's';
+      }
+      dbg('Q', frameQueue.length + ' int=' + frameIntervalMs + 'ms' + syncInfo, 'info');
       scheduleRender();
     }
 
@@ -427,6 +486,7 @@
           dbg('Quality', (lv.width||'?') + 'x' + (lv.height||'?') + ' L' + data.level, 'info');
           waitingForKeyframe = true;
           sampleTimestamp = 0;
+          syncEstablished = false;
         }
       });
 
@@ -454,6 +514,8 @@
       decodedTotal = 0; frameCount = 0; errorCount = 0; canvasMode = true; debugInfo = {};
       gotFirstFrame = false; waitingForKeyframe = true; decoderReady = false;
       avcCData = null; segmentCount = 0; sampleTimestamp = 0;
+      syncEstablished = false; droppedFrames = 0;
+      segAudioTimeAtArrival = 0; segFirstFrameTs = 0;
       renderCanvas.style.display = 'block'; displayImg.style.display = 'none';
     }
 
