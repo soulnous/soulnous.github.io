@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>OpenMyCarIL - Tesla TV Player v6.0</title>
+  <title>OpenMyCarIL - Tesla TV Player v6.1</title>
   <link rel="icon" href="https://images.shulcloud.com/1105/uploads/OTT/vbstv-square-icon-512.jpg" type="image/x-icon">
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <style>
@@ -71,7 +71,7 @@
     setInterval(function() {
       dbg('FPS', frameCount, frameCount > 0 ? 'ok' : 'warn');
       dbg('Audio', (audioVideo.currentTime||0).toFixed(1)+'s / '+(audioVideo.paused?'PAUSED':'playing'), audioVideo.paused?'warn':'ok');
-      var html = '<b>=== TESLA v6.0 ===</b><br>';
+      var html = '<b>=== TESLA v6.1 ===</b><br>';
       for (var k in debugInfo) html += k+': '+debugInfo[k]+'<br>';
       debugPanel.innerHTML = html;
       frameCount = 0;
@@ -272,8 +272,6 @@
     var canvasChecked = false;
     var frameIntervalMs = 40;
 
-    var lastOffsetUpdateSeg = -1; // which segment# we last updated offset on
-
     function onFrame(frame) {
       decodedTotal++;
       if (!gotFirstFrame) {
@@ -281,23 +279,23 @@
         renderCanvas.width = frame.displayWidth;
         renderCanvas.height = frame.displayHeight;
         dbg('FirstFrame', frame.displayWidth + 'x' + frame.displayHeight, 'ok');
+
+        // Learn the time offset ONCE from the very first frame.
+        // frame.timestamp is in microseconds, audioVideo.currentTime is in seconds.
+        if (!timeOffsetSet && audioVideo.currentTime > 0) {
+          var frameTimeSec = frame.timestamp / 1000000;
+          timeOffset = frameTimeSec - audioVideo.currentTime;
+          timeOffsetSet = true;
+          dbg('TimeOffset', timeOffset.toFixed(3), 'ok');
+        }
       }
 
-      // Re-calibrate timeOffset on every NEW segment's first frame.
-      // This keeps sync accurate even if timestamp base changes between segments.
-      if (segmentCount > lastOffsetUpdateSeg && !audioVideo.paused && audioVideo.currentTime > 0.5) {
-        lastOffsetUpdateSeg = segmentCount;
+      // If offset not set yet (audio wasn't playing), try on each frame until we get it
+      if (!timeOffsetSet && audioVideo.currentTime > 0) {
         var frameTimeSec = frame.timestamp / 1000000;
-        var newOffset = frameTimeSec - audioVideo.currentTime;
-        // Smooth it: blend 70% new + 30% old to avoid jumps (unless first time)
-        if (!timeOffsetSet) {
-          timeOffset = newOffset;
-          timeOffsetSet = true;
-          dbg('TimeOffset', 'init=' + newOffset.toFixed(3), 'ok');
-        } else {
-          timeOffset = newOffset * 0.7 + timeOffset * 0.3;
-        }
-        dbg('TimeOffset', timeOffset.toFixed(3) + ' (seg ' + segmentCount + ')', 'ok');
+        timeOffset = frameTimeSec - audioVideo.currentTime;
+        timeOffsetSet = true;
+        dbg('TimeOffset', timeOffset.toFixed(3), 'ok');
       }
 
       if (frameQueue.length >= MAX_QUEUE) {
@@ -355,17 +353,18 @@
         }
       }
 
-      // ANTI-FREEZE: if we found no frame for 150ms (19 ticks at 8ms) but queue has frames,
-      // the timeOffset has drifted. Re-calibrate by showing the oldest frame and adjusting offset.
+      // ANTI-FREEZE: if no frame found for 200ms but queue has frames,
+      // the offset may have drifted. Re-calibrate to get back on track.
       if (!bestFrame && frameQueue.length > 0) {
         noFrameTicks++;
-        if (noFrameTicks > 19) {
-          // Re-calibrate: assume the oldest frame in queue should play NOW
-          bestFrame = frameQueue.shift();
-          var newOffset = bestFrame.timestamp / 1000000 - audioNow;
-          dbg('Recalib', 'old=' + timeOffset.toFixed(2) + ' new=' + newOffset.toFixed(2), 'warn');
+        if (noFrameTicks > 25) {
+          // Re-calibrate: set offset so next frame in queue = audio NOW
+          var nextFrame = frameQueue[0];
+          var newOffset = nextFrame.timestamp / 1000000 - audioNow;
+          dbg('Recalib', timeOffset.toFixed(2) + '->' + newOffset.toFixed(2), 'warn');
           timeOffset = newOffset;
           noFrameTicks = 0;
+          // Don't grab a frame this tick - let next tick pick it up naturally
         }
       } else if (bestFrame) {
         noFrameTicks = 0;
@@ -537,7 +536,7 @@
       decodedTotal = 0; frameCount = 0; errorCount = 0; canvasMode = true; debugInfo = {};
       gotFirstFrame = false; waitingForKeyframe = true; decoderReady = false;
       avcCData = null; segmentCount = 0; sampleTimestamp = 0;
-      timeOffset = 0; timeOffsetSet = false; droppedFrames = 0; lastOffsetUpdateSeg = -1;
+      timeOffset = 0; timeOffsetSet = false; droppedFrames = 0; noFrameTicks = 0;
       renderCanvas.style.display = 'block'; displayImg.style.display = 'none';
     }
 
