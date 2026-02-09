@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>OpenMyCarIL - Tesla TV Player v4</title>
+  <link rel="icon" href="https://images.shulcloud.com/1105/uploads/OTT/vbstv-square-icon-512.jpg" type="image/x-icon">
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <style>
+    body {
+      position: relative;
+      margin: 0;
+      padding: 0;
+      background-color: #121212;
+      color: #fff;
+      display: flex;
+    }
+    #supportButton {
+      display: block;
+      font-family: tahoma;
+      text-align: center;
+      padding-bottom: 10px;
+    }
+    #supportButton a {
+      text-decoration: none;
+      color: #aaa;
+      font-size: 20px;
+    }
+    #content {
+      flex: 1;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    #channelPicker {
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      overflow-x: hidden;
+      height: 100vh;
+    }
+    #channelPicker button {
+      margin: 5px 0;
+      cursor: pointer;
+    }
+    #channelPicker img {
+      width: 100px;
+      height: auto;
+    }
+    #videoContainer {
+      flex: 1;
+      text-align: center;
+      position: relative;
+    }
+    #displayImg {
+      width: 95%;
+      max-height: 90%;
+      margin: 0 auto;
+      display: block;
+      background: #000;
+    }
+    #renderCanvas {
+      width: 95%;
+      max-height: 90%;
+      margin: 0 auto;
+      display: block;
+      background: #000;
+    }
+    /* Hidden video for audio only */
+    #audioVideo {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+      z-index: -1;
+    }
+    #videoContainer iframe {
+      width: 95%;
+      height: 90%;
+    }
+    #debugPanel {
+      position: fixed;
+      top: 5px;
+      right: 5px;
+      background: rgba(0,0,0,0.85);
+      color: #0f0;
+      padding: 8px 12px;
+      font-size: 11px;
+      font-family: monospace;
+      border-radius: 4px;
+      z-index: 9999;
+      line-height: 1.5;
+      min-width: 320px;
+      text-align: left;
+      max-height: 95vh;
+      overflow-y: auto;
+    }
+    .debug-ok { color: #0f0; }
+    .debug-fail { color: #f00; }
+    .debug-warn { color: #ff0; }
+    .debug-info { color: #0ff; }
+  </style>
+</head>
+<body>
+  <div id="channelPicker"></div>
+  <div id="content">
+    <div id="supportButton">
+      <a href="https://OpenMyCar-IL.com" target="_blank">
+        OpenMyCar-IL.com - FREE ISRAELI&WORLDWIDE TV CHANNELS
+      </a>
+    </div>
+    <div id="videoContainer">
+      <!-- Hidden video ONLY for audio playback -->
+      <video id="audioVideo" playsinline></video>
+      <!-- Canvas for WebCodecs rendering -->
+      <canvas id="renderCanvas"></canvas>
+      <!-- Fallback img display -->
+      <img id="displayImg" alt="TV Stream" style="display:none" />
+    </div>
+  </div>
+  <div id="debugPanel">Waiting for channel...</div>
+
+  <script>
+    /*
+     * Tesla TV Player v4 - WebCodecs Direct Decode
+     *
+     * Strategy:
+     * 1. Use HLS.js to fetch and demux TS segments
+     * 2. Intercept raw H.264 NAL units from HLS.js
+     * 3. Decode with WebCodecs VideoDecoder (NO <video> element!)
+     * 4. Render VideoFrame directly to canvas
+     * 5. If canvas is blocked, convert to img via toBlob
+     * 6. Audio: use hidden <video> element (audio not blocked by Tesla)
+     *
+     * Why this should work on Tesla while driving:
+     * - Tesla blocks reading pixels FROM a <video> element
+     * - But WebCodecs VideoDecoder doesn't use <video> at all
+     * - It decodes H.264 → VideoFrame → canvas.drawImage(videoFrame)
+     * - This is a different code path that Tesla may not block
+     */
+
+    var currentHls = null;
+    var videoDecoder = null;
+    var frameLoopId = null;
+    var frameCount = 0;
+    var currentBlobUrl = null;
+    var debugLines = {};
+    var lastFrame = null;
+    var canvasBlocked = false;
+    var decoderConfigured = false;
+    var totalFramesDecoded = 0;
+    var pendingFrames = 0;
+
+    var audioVideo = document.getElementById('audioVideo');
+    var renderCanvas = document.getElementById('renderCanvas');
+    var displayImg = document.getElementById('displayImg');
+    var debugPanel = document.getElementById('debugPanel');
+    var canvasCtx = renderCanvas.getContext('2d');
+
+    function dbg(key, value, status) {
+      debugLines[key] = { value: value, status: status || 'info' };
+    }
+
+    function renderDebug() {
+      var html = '<b>=== TESLA v4 WebCodecs ===</b><br>';
+      var keys = Object.keys(debugLines);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        var d = debugLines[k];
+        var cls = 'debug-info';
+        if (d.status === 'ok') cls = 'debug-ok';
+        if (d.status === 'fail') cls = 'debug-fail';
+        if (d.status === 'warn') cls = 'debug-warn';
+        html += k + ': <span class="' + cls + '">' + d.value + '</span><br>';
+      }
+      debugPanel.innerHTML = html;
+    }
+
+    setInterval(function() {
+      dbg('FPS', frameCount, frameCount > 0 ? 'ok' : 'warn');
+      dbg('Decoded total', totalFramesDecoded, totalFramesDecoded > 0 ? 'ok' : 'warn');
+      dbg('Audio time', (audioVideo.currentTime || 0).toFixed(1) + 's', 'info');
+      dbg('Audio paused', audioVideo.paused, audioVideo.paused ? 'warn' : 'ok');
+      renderDebug();
+      frameCount = 0;
+    }, 1000);
+
+    // ------ WebCodecs Video Decoder ------
+
+    function initDecoder() {
+      if (videoDecoder) {
+        try { videoDecoder.close(); } catch(e) {}
+      }
+      decoderConfigured = false;
+
+      if (typeof VideoDecoder === 'undefined') {
+        dbg('WebCodecs', 'NOT SUPPORTED', 'fail');
+        return false;
+      }
+
+      videoDecoder = new VideoDecoder({
+        output: function(frame) {
+          totalFramesDecoded++;
+          pendingFrames--;
+          dbg('Decoder', 'ACTIVE - frames: ' + totalFramesDecoded, 'ok');
+
+          // Render VideoFrame to canvas
+          try {
+            if (renderCanvas.width !== frame.displayWidth ||
+                renderCanvas.height !== frame.displayHeight) {
+              renderCanvas.width = frame.displayWidth;
+              renderCanvas.height = frame.displayHeight;
+            }
+
+            // Method A: draw VideoFrame directly to canvas
+            canvasCtx.drawImage(frame, 0, 0);
+
+            // Check if canvas rendering worked (non-black pixels)
+            try {
+              var px = canvasCtx.getImageData(
+                Math.floor(frame.displayWidth / 2),
+                Math.floor(frame.displayHeight / 2), 1, 1
+              ).data;
+              if ((px[0] + px[1] + px[2]) > 10) {
+                dbg('Canvas render', 'OK (direct VideoFrame)', 'ok');
+                canvasBlocked = false;
+                renderCanvas.style.display = 'block';
+                displayImg.style.display = 'none';
+                frameCount++;
+              } else {
+                // Canvas might be blocked, try img fallback
+                canvasBlocked = true;
+                dbg('Canvas render', 'BLACK - trying img fallback', 'warn');
+                canvasToImg();
+              }
+            } catch(e) {
+              canvasBlocked = true;
+              dbg('Canvas getImageData', 'BLOCKED: ' + e.message, 'fail');
+              canvasToImg();
+            }
+          } catch(e) {
+            dbg('Canvas drawImage(frame)', 'ERROR: ' + e.message, 'fail');
+            // Try drawing to offscreen canvas
+            tryOffscreenRender(frame);
+          }
+
+          frame.close();
+        },
+        error: function(e) {
+          dbg('Decoder error', e.message, 'fail');
+          pendingFrames = 0;
+        }
+      });
+
+      dbg('WebCodecs', 'INITIALIZED', 'ok');
+      return true;
+    }
+
+    function canvasToImg() {
+      renderCanvas.toBlob(function(blob) {
+        if (blob && blob.size > 3000) {
+          if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+          currentBlobUrl = URL.createObjectURL(blob);
+          displayImg.src = currentBlobUrl;
+          displayImg.style.display = 'block';
+          renderCanvas.style.display = 'none';
+          dbg('IMG fallback', 'OK (' + blob.size + ' bytes)', 'ok');
+          frameCount++;
+        }
+      }, 'image/jpeg', 0.85);
+    }
+
+    function tryOffscreenRender(frame) {
+      try {
+        var offscreen = new OffscreenCanvas(frame.displayWidth, frame.displayHeight);
+        var ctx = offscreen.getContext('2d');
+        ctx.drawImage(frame, 0, 0);
+        offscreen.convertToBlob({ type: 'image/jpeg', quality: 0.85 }).then(function(blob) {
+          if (blob && blob.size > 3000) {
+            if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+            currentBlobUrl = URL.createObjectURL(blob);
+            displayImg.src = currentBlobUrl;
+            displayImg.style.display = 'block';
+            renderCanvas.style.display = 'none';
+            dbg('OffscreenCanvas', 'OK', 'ok');
+            frameCount++;
+          }
+        });
+      } catch(e) {
+        dbg('OffscreenCanvas', 'FAILED: ' + e.message, 'fail');
+      }
+    }
+
+    // ------ HLS.js Integration ------
+    // We use HLS.js to handle m3u8 parsing, TS downloading, and demuxing
+    // Then intercept the raw H.264 data before it goes to <video>
+
+    function configureDecoder(width, height, codec) {
+      if (decoderConfigured) return;
+      if (!videoDecoder) return;
+
+      var codecString = codec || 'avc1.42E01E'; // Baseline profile
+
+      // Try common codec strings
+      var codecs = [
+        'avc1.42E01E', // Baseline
+        'avc1.4D401E', // Main
+        'avc1.4D4028', // Main 4.0
+        'avc1.640028', // High
+        'avc1.64001F', // High 3.1
+      ];
+
+      function tryNextCodec(idx) {
+        if (idx >= codecs.length) {
+          dbg('Decoder config', 'ALL CODECS FAILED', 'fail');
+          return;
+        }
+
+        var config = {
+          codec: codecs[idx],
+          codedWidth: width || 1024,
+          codedHeight: height || 576,
+          optimizeForLatency: true,
+          hardwareAcceleration: 'prefer-hardware'
+        };
+
+        VideoDecoder.isConfigSupported(config).then(function(support) {
+          if (support.supported) {
+            videoDecoder.configure(config);
+            decoderConfigured = true;
+            dbg('Decoder config', codecs[idx] + ' ' + width + 'x' + height, 'ok');
+          } else {
+            tryNextCodec(idx + 1);
+          }
+        }).catch(function() {
+          tryNextCodec(idx + 1);
+        });
+      }
+
+      tryNextCodec(0);
+    }
+
+    function feedDecoder(data, keyFrame, timestamp, duration) {
+      if (!videoDecoder || videoDecoder.state !== 'configured') return;
+
+      // Limit pending frames to avoid overwhelming the decoder
+      if (pendingFrames > 10) {
+        dbg('Decoder queue', 'DROPPING (pending: ' + pendingFrames + ')', 'warn');
+        return;
+      }
+
+      try {
+        var chunk = new EncodedVideoChunk({
+          type: keyFrame ? 'key' : 'delta',
+          timestamp: timestamp,
+          duration: duration,
+          data: data
+        });
+        videoDecoder.decode(chunk);
+        pendingFrames++;
+      } catch(e) {
+        dbg('Feed error', e.message, 'fail');
+      }
+    }
+
+    // ------ Stream Playback ------
+
+    function playStream(url) {
+      cleanup();
+      dbg('Status', 'Loading: ' + url.substring(0, 50) + '...', 'info');
+
+      // Initialize WebCodecs decoder
+      var hasWebCodecs = initDecoder();
+      dbg('Has WebCodecs', hasWebCodecs ? 'YES' : 'NO', hasWebCodecs ? 'ok' : 'fail');
+
+      if (!Hls.isSupported()) {
+        dbg('HLS.js', 'NOT SUPPORTED', 'fail');
+        return;
+      }
+
+      var hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        // Don't append to video if we have WebCodecs
+        appendErrorMaxRetry: 5
+      });
+
+      hls.loadSource(url);
+
+      if (hasWebCodecs) {
+        // Strategy: attach to hidden video for AUDIO only
+        // Intercept video data for WebCodecs
+        hls.attachMedia(audioVideo);
+        audioVideo.muted = false;
+
+        hls.on(Hls.Events.MANIFEST_PARSED, function(event, data) {
+          dbg('HLS', 'MANIFEST PARSED - levels: ' + data.levels.length, 'ok');
+
+          // Get resolution from first level
+          if (data.levels.length > 0) {
+            var level = data.levels[0];
+            dbg('Stream', level.width + 'x' + level.height, 'info');
+            configureDecoder(level.width, level.height);
+          }
+
+          audioVideo.play().then(function() {
+            dbg('Audio', 'PLAYING', 'ok');
+          }).catch(function(e) {
+            dbg('Audio', 'BLOCKED - trying muted', 'warn');
+            audioVideo.muted = true;
+            audioVideo.play().then(function() {
+              dbg('Audio', 'PLAYING (muted)', 'warn');
+              setTimeout(function() { audioVideo.muted = false; }, 2000);
+            });
+          });
+        });
+
+        // Intercept parsed video data from HLS.js transmuxer
+        hls.on(Hls.Events.FRAG_PARSING_DATA, function(event, data) {
+          if (data.type === 'video' && data.nb > 0) {
+            dbg('HLS video data', data.nb + ' samples in fragment', 'ok');
+
+            // Configure decoder if not done yet
+            if (!decoderConfigured && data.nb > 0) {
+              var level = hls.levels[hls.currentLevel];
+              if (level) {
+                configureDecoder(level.width, level.height);
+              }
+            }
+
+            for (var i = 0; i < data.nb; i++) {
+              var sample = data.samples[i];
+              if (sample && sample.units) {
+                // Combine all NAL units for this sample into one buffer
+                var totalSize = 0;
+                for (var j = 0; j < sample.units.length; j++) {
+                  totalSize += sample.units[j].data.byteLength;
+                }
+                var combined = new Uint8Array(totalSize);
+                var offset = 0;
+                for (var j = 0; j < sample.units.length; j++) {
+                  combined.set(new Uint8Array(sample.units[j].data), offset);
+                  offset += sample.units[j].data.byteLength;
+                }
+
+                feedDecoder(
+                  combined,
+                  sample.key === true,
+                  sample.pts * 1000, // Convert to microseconds
+                  sample.duration * 1000
+                );
+              } else if (sample && sample.data) {
+                // Alternative format - raw data
+                feedDecoder(
+                  sample.data,
+                  sample.key === true,
+                  sample.pts * 1000,
+                  sample.duration * 1000
+                );
+              }
+            }
+          }
+        });
+
+        hls.on(Hls.Events.FRAG_PARSED, function(event, data) {
+          dbg('Fragment', 'parsed', 'ok');
+        });
+
+        hls.on(Hls.Events.LEVEL_SWITCHED, function(event, data) {
+          var level = hls.levels[data.level];
+          if (level) {
+            dbg('Quality', level.width + 'x' + level.height + ' @ ' + (level.bitrate/1000).toFixed(0) + 'kbps', 'info');
+            // Reconfigure decoder for new resolution
+            if (decoderConfigured) {
+              decoderConfigured = false;
+              configureDecoder(level.width, level.height);
+            }
+          }
+        });
+
+      } else {
+        // Fallback: no WebCodecs, use video element directly
+        hls.attachMedia(audioVideo);
+        audioVideo.style.width = '95%';
+        audioVideo.style.maxHeight = '90%';
+        audioVideo.style.opacity = '1';
+        audioVideo.style.position = 'static';
+        audioVideo.controls = true;
+        dbg('Mode', 'FALLBACK - direct video (no WebCodecs)', 'warn');
+
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+          audioVideo.play().catch(function() {
+            audioVideo.muted = true;
+            audioVideo.play();
+          });
+        });
+      }
+
+      hls.on(Hls.Events.ERROR, function(event, data) {
+        dbg('HLS Error', data.type + ': ' + data.details, 'fail');
+        if (data.fatal) {
+          dbg('HLS Fatal', 'YES - recovering...', 'fail');
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            hls.recoverMediaError();
+          }
+        }
+      });
+
+      currentHls = hls;
+
+      var container = document.getElementById('videoContainer');
+      container.innerHTML = '';
+      container.appendChild(audioVideo);
+      container.appendChild(renderCanvas);
+      container.appendChild(displayImg);
+    }
+
+    function cleanup() {
+      if (frameLoopId) {
+        cancelAnimationFrame(frameLoopId);
+        frameLoopId = null;
+      }
+      if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+        currentBlobUrl = null;
+      }
+      if (videoDecoder) {
+        try { videoDecoder.close(); } catch(e) {}
+        videoDecoder = null;
+      }
+      if (currentHls) {
+        currentHls.destroy();
+        currentHls = null;
+      }
+      decoderConfigured = false;
+      totalFramesDecoded = 0;
+      pendingFrames = 0;
+      frameCount = 0;
+      debugLines = {};
+    }
+
+    // ------ UI ------
+
+    function playStreamRaw(url) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url);
+      xhr.onload = function() {
+        if (xhr.status === 200) { playStream(xhr.responseURL); }
+      };
+      xhr.send();
+    }
+
+    function createButton(name, logo, url, groupTitle) {
+      var button = document.createElement('button');
+      button.className = 'channel-button';
+      button.innerHTML = '<img src="' + logo + '" alt="' + name + '">';
+      button.addEventListener('click', function() {
+        if (url.includes('php?m3u8')) {
+          var iframe = document.createElement('iframe');
+          iframe.src = 'https://www.mako.co.il/AjaxPage?jspName=embedHTML5video.jsp&galleryChannelId=7c5076a9b8757810VgnVCM100000700a10acRCRD&videoChannelId=d1d6f5dfc8517810VgnVCM100000700a10acRCRD&vcmid=1e2258089b67f510VgnVCM2000002a0c10acRCRD';
+          iframe.setAttribute('allowfullscreen', true);
+          var container = document.getElementById('videoContainer');
+          container.innerHTML = '';
+          container.appendChild(iframe);
+        } else {
+          playStream(url);
+        }
+      });
+      return button;
+    }
+
+    function start() {
+      // Show initial capabilities
+      dbg('VideoDecoder', typeof VideoDecoder !== 'undefined' ? 'AVAILABLE' : 'NOT AVAILABLE',
+          typeof VideoDecoder !== 'undefined' ? 'ok' : 'fail');
+      dbg('OffscreenCanvas', typeof OffscreenCanvas !== 'undefined' ? 'AVAILABLE' : 'NOT AVAILABLE',
+          typeof OffscreenCanvas !== 'undefined' ? 'ok' : 'fail');
+      renderDebug();
+
+      fetch('https://raw.githubusercontent.com/soulnous/mybabe/main/lol1.m3u')
+        .then(function(response) { return response.text(); })
+        .then(function(data) {
+          var channelPicker = document.getElementById('channelPicker');
+          channelPicker.innerHTML = '';
+          var lines = data.split(/\r?\n/);
+          var channels = [];
+          var currentChannel = {};
+
+          lines.forEach(function(line) {
+            if (line.startsWith('#EXTINF:-1')) {
+              if (currentChannel.name && currentChannel.logo && currentChannel.url) {
+                channels.push(currentChannel);
+                currentChannel = {};
+              }
+              var nameMatch = line.match(/tvg-id="([^"]+)"/);
+              var logoMatch = line.match(/tvg-logo="([^"]+)"/);
+              var groupTitleMatch = line.match(/group-title="([^"]+)"/);
+              if (nameMatch && logoMatch) {
+                currentChannel.name = nameMatch[1];
+                currentChannel.logo = logoMatch[1];
+                currentChannel.groupTitle = groupTitleMatch ? groupTitleMatch[1] : '';
+              }
+            } else if (line.trim() !== '' && !line.startsWith('#')) {
+              currentChannel.url = line;
+            }
+          });
+
+          if (currentChannel.name && currentChannel.logo && currentChannel.url) {
+            channels.push(currentChannel);
+          }
+
+          channels.forEach(function(channel) {
+            var button = createButton(channel.name, channel.logo, channel.url, channel.groupTitle);
+            channelPicker.appendChild(button);
+          });
+        });
+    }
+
+    window.onload = function() { start(); };
+  </script>
+</body>
+</html>
